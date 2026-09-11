@@ -12,6 +12,8 @@ type Rule struct {
 	Name string
 	// Raw is the membership formula as text, continuation lines joined.
 	Raw string
+	// Formula is the parsed formula. Filled in by Load.
+	Formula Node
 }
 
 // Label returns the code plus its variant marker, e.g. "N15!!".
@@ -47,6 +49,29 @@ type Expr struct {
 	Op    string // "GR", "GE", "EQ", or "" when there is no right-hand side
 	Right Operand
 }
+
+// Node is a node of a parsed membership formula.
+type Node interface{ isNode() }
+
+// And is "x AND y".
+type And struct{ L, R Node }
+
+// Or is "x OR y".
+type Or struct{ L, R Node }
+
+// Not is "x NOT y", the binary "and not" of the expert-system language.
+type Not struct{ L, R Node }
+
+// Leaf is a single membership expression.
+type Leaf struct {
+	Expr Expr
+	Raw  string
+}
+
+func (And) isNode()  {}
+func (Or) isNode()   {}
+func (Not) isNode()  {}
+func (Leaf) isNode() {}
 
 // Issues counts and names the defects found in a rule file.
 type Issues struct {

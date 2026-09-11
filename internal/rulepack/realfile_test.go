@@ -181,3 +181,28 @@ func TestParseEveryRealExpression(t *testing.T) {
 		}
 	}
 }
+
+func TestParseEveryRealFormula(t *testing.T) {
+	p := os.Getenv("ESY_FILE")
+	if p == "" {
+		t.Skip("ESY_FILE not set")
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	secs, err := SplitSections(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules, err := ParseRuleHeaders(secs[3])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rules {
+		if _, err := ParseFormula(r.Raw); err != nil {
+			t.Errorf("rule %s: %v\n  %s", r.Label(), err, r.Raw)
+		}
+	}
+}
