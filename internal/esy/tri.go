@@ -23,16 +23,9 @@ func (t Tri) String() string {
 	}
 }
 
-// And is R's "&": FALSE on the left dominates, otherwise NA propagates.
-// Asymmetric: Unknown AND False = Unknown, but False AND Unknown = False.
+// And is R's "&": FALSE dominates, otherwise NA propagates.
 func (t Tri) And(o Tri) Tri {
-	if t == False {
-		return False
-	}
-	if o == False {
-		if t == Unknown {
-			return Unknown
-		}
+	if t == False || o == False {
 		return False
 	}
 	if t == Unknown || o == Unknown {
@@ -53,13 +46,7 @@ func (t Tri) Or(o Tri) Tri {
 }
 
 // AndNot is the expert system's binary NOT, i.e. R's "&!".
-// Special case: Unknown AND NOT True = False (R's NA & !TRUE = FALSE).
-func (t Tri) AndNot(o Tri) Tri {
-	if t == Unknown && o == True {
-		return False
-	}
-	return t.And(o.not())
-}
+func (t Tri) AndNot(o Tri) Tri { return t.And(o.not()) }
 
 func (t Tri) not() Tri {
 	switch t {
