@@ -342,17 +342,19 @@ Formeln. Alle Regeln werden bewertet.
 | `##C` | Summe der Deckungen |
 | `##Q` | Summe der Wurzeln der Deckungen |
 | `#TC` | Gesamtdeckung der Gruppe (Jennings-Fischer) |
-| `#NN` (`#01`…`#05`) | Artenzahl der Gruppe ≥ NN, ergibt 1/0 |
+| `#NN` (`#01`…`#05`) | gemeint ist „Artenzahl der Gruppe ≥ NN"; im Upstream **immer FALSE**, siehe §8 |
 | `#SC` | Deckung einer Einzelart der Gruppe |
 | `#T$` | Gesamtdeckung **ohne** die Arten der verglichenen Gruppe |
 | `#$$` | höchste Deckung irgendeiner Art im Plot, **einschließlich** der verglichenen Gruppe; nur die Form `#$$ EXCEPT <Gruppe>` schließt jene aus |
 | `$NN` (`$25`, `$50`) | Prozentsatz der Gesamtdeckung |
-| `NON` | dasselbe Maß über die Arten außerhalb der Gruppe |
+| `NON` | dasselbe Maß über die **übrigen Gruppen derselben `+NN`-Menge**, die Gruppe selbst ausgenommen — nicht über die Arten außerhalb der Gruppe |
 | `$$C`, `$$N` | Kopfdaten, kategorial bzw. numerisch |
 
 Der `+NN`-Qualifier (`+01`…`+12`, ohne `+05`) benennt eine Vergleichsmenge von
 Gruppen; `GR NON <dieselbe Gruppe>` heißt „größer als jede andere Gruppe dieser
-Menge".
+Menge". Die Einschränkung auf dieselbe Menge steht im Upstream an einer Stelle
+für beide Fälle — den operatorlosen Ausdruck und das `NON`-Atom
+(`step3and5…R:361-380`); nachgebildet in `esy.bestOfComparisonSet`.
 
 ### 5.2 Deckungsverschmelzung
 
@@ -455,13 +457,20 @@ R ist Entwicklerwerkzeug hinter `make fixtures`, niemals Laufzeitabhängigkeit.
 
 ### Eingaben
 
-1. **Tüxen-Archiv**, 10.717 Aufnahmen aus vegetweb. Integrationstest mit
-   veröffentlichter Zielmarke: 94 % eindeutig zugeordnet.
-2. **Regelgetriebene synthetische Plots** — je Bedingung ein Fall knapp über und
-   knapp unter der Schwelle. Einzige Quelle mit systematischer Abdeckung; das
-   Tüxen-Archiv ist deutschlandlastig und rührt Mittelmeer- und Schwarzmeerregeln
-   nie an.
+1. **Tüxen-Archiv** aus vegetweb. Der Lauf verwendet **10.295** Aufnahmen: von
+   den 10.717 des Datensatzes sind 422 Nullinsel-Plots (Koordinate 0/0)
+   ausgeschlossen. Erreichte Eindeutigkeitsquote: **89,42 %**. Die
+   veröffentlichte Marke von 94 % wird also nicht erreicht; der Abstand von
+   3,8 Punkten wird darauf zurückgeführt, dass das Upstream-Beispiel den
+   GermanSL-Backbone nicht anwendet. Die 94 % sind **keine** Abnahmebedingung
+   und werden von keinem Test geprüft.
+2. **Regelgetriebene synthetische Plots**, 1.042 Stück — je Bedingung ein Fall
+   knapp über und knapp unter der Schwelle. Einzige Quelle mit systematischer
+   Abdeckung; das Tüxen-Archiv ist deutschlandlastig und rührt Mittelmeer- und
+   Schwarzmeerregeln nie an.
 3. **Die Defektfälle aus Sektion 1** mit der in §8 entschiedenen Auflösung.
+
+Zusammen 11.337 Aufnahmen.
 
 ### Fixtures
 
@@ -469,19 +478,29 @@ R ist Entwicklerwerkzeug hinter `make fixtures`, niemals Laufzeitabhängigkeit.
 testdata/golden/
   rulepack.sha256      Hash der Regelwerksdatei
   upstream.commit      Commit des R-Referenzstands
+  meta.json            Manifest: n_plots, n_rules, R-Version, Erzeugungszeit
   cases.jsonl          Eingaben
-  expected.jsonl       result, matches[], conditions{}, formulas{}
-  README.md            Erzeugung
+  synthetic.jsonl      die regelgetriebenen Eingaben allein
+  expected.jsonl       winner und matches[] je Aufnahme
+  intermediates.jsonl  die Bedingungswerte und Ausdruckswahrheiten je Aufnahme
+  conditions.json,     die Bedingungs- und Ausdruckstexte des Upstreams,
+  expressions.json,    an denen die Indizes in intermediates.jsonl hängen
+  rule-exprs.json
 ```
+
+Erzeugt werden sie von `make fixtures`; beschrieben ist der Vorgang in
+`spike/resy/README.md`.
 
 Beide Hashes sind Teil der Fixtures. Ändert sich einer, schlägt der Test fehl und
 der Diff zeigt, was die neue Version bewirkt.
 
 ### Abnahme
 
-Übereinstimmung in `result`, in der Trefferliste bis Position zehn **und in jedem
-Bedingungswert**. Eine Abweichung gilt als Fehler in Habitatus, bis das Gegenteil
-gezeigt ist.
+Übereinstimmung in `result`, in der **vollständigen** Trefferliste **und in jedem
+Bedingungswert**. Das Abnahmekriterium ist **null Abweichung** über alle 11.337
+Aufnahmen: 0 Gewinner-Abweichungen, 0 Trefferlisten-Abweichungen, 0 abweichende
+Ausdruckswahrheiten. Eine Abweichung gilt als Fehler in Habitatus, bis das
+Gegenteil gezeigt ist.
 
 ### Grenze des Verfahrens
 
@@ -523,11 +542,58 @@ transitive Auflösung `Cf. Verbascum species (rosette leaf)` in `ZZZ Noise` lauf
 ließe und damit einen Datensatz verwirft. Ebenfalls als Fixture hinterlegt und in
 der Notiz an die Autoren angefragt.
 
+### `#NN Gruppe` ist im Upstream immer FALSE
+
+Die folgenreichste nachgebildete Eigenheit. Gemeint ist „die Gruppe hat
+mindestens NN Arten"; ausgewertet wird sie nie.
+
+Der Upstream zerlegt Ausdrücke ausschließlich an den **mit Leerzeichen
+umgebenen** Operatoren (`ParsingExpertFile.R:432-434`):
+
+```r
+membership.conditions2 <- unlist(strsplit(membership.expressions, " GR "))
+```
+
+Ein Ausdruck ohne Operator bekommt normalerweise `" GR NON <sich selbst>"
+angehängt und wird regulär ausgewertet — die `#NN`-Form ist von dieser
+Ergänzung ausgenommen, weil `ParsingExpertFile.R:236-237` prüft, ob Zeichen 3
+eine Ziffer ist. Sie bleibt damit eine einzelne Bedingung, ihr ausgewerteter
+Wert ist eine blanke Zahl, und Schritt 8 verwirft jede Zahl
+(`step3and5…R:493`):
+
+```r
+logi1[which(unlist(lapply(logi1, is.numeric)))] <- FALSE
+```
+
+Wirkung im Regelwerk 2025-10-03: **100 der 312 Regeln können nie feuern**, weil
+jeder Weg zu TRUE durch eine solche Bedingung führt. Den Schwerpunkt bilden die
+Fels- (`R…`) und Grasland-Blöcke (`U…`); vollständig sind es
+
+```
+N15! N15!! N16! N17! N34
+Q12 Q21 Q23 Q31 Q45 Q46 Q54 Qa
+R11 R12 R13 R14 R16 R17 R18 R19 R1A R1B R1B! R1C R1D R1E R1F R1G R1H R1K
+R1M R1P R1Q R1R R21 R22 R23 R23! R24 R24! R31 R32 R33 R34 R35 R36 R37 R41
+R41! R42 R43 R44 R45 R51 R52 R57
+S12 S61 S62 S66 S67 S68
+T36 T3C
+U21 U22 U23 U24 U25 U26 U27 U28 U29 U2A U31 U32 U33 U34 U35 U36 U37 U38
+U3C U3D U52 U61 U62 U71 U71! U72
+V11! V12 V12! V13 V13! V15 V32 V34 V35
+```
+
+Nachgebildet in `rulepack.isAlwaysFalse`; die Liste wird beim Laden statisch
+berechnet und als `Stats.Unreachable` ausgewiesen, damit sie nicht mit „Regel
+ist bisher nicht vorgekommen" verwechselt wird.
+
 ### Bekannte Eigenheiten, die nachgebildet werden
 
 - Trefferliste im Original bei zehn abgeschnitten
-- Prioritätsstufen als Zeichenketten verglichen; korrekt bei einstelligen Stufen,
-  latent falsch ab Stufe 10
+- Prioritätsstufen vergleicht der Upstream als Zeichenketten (Faktorstufen,
+  `prep.R:71`); `esy.winner` sortiert ganzzahlig. Beides stimmt überein,
+  solange die Stufen einstellig bleiben (im Regelwerk 2025: 1–8). Ab Stufe 10
+  würden die Verfahren auseinanderlaufen — die Zeichenkettenordnung ist also
+  **nicht** nachgebildet, sondern nur im heutigen Wertebereich äquivalent.
 - `N_Dunes` im Testdatensatz gegen `Y_DUNES` im Regelwerk — uneinheitliche
   Schreibung, folgenlos, weil Regeln nur auf `Y_DUNES` prüfen
 
