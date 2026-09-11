@@ -80,7 +80,7 @@ bedient derselbe Parser auch die Backbone-Tabellen.
 **`taxa`** bildet Rohnamen über die Backbone-Tabelle und anschließend über
 Sektion 1 auf ESy-Zielkonzepte ab und verschmilzt dabei Deckungen.
 
-**`esy`** wertet das Regelwerk dreiwertig aus und liefert Treffer, Gewinner und
+**`esy`** wertet das Regelwerk aus und liefert Treffer, Gewinner und
 die Zwischenwerte jeder Bedingung. Rein, ohne Seiteneffekte.
 
 **`classify`** orchestriert, validiert und setzt die Antwort zusammen.
@@ -325,7 +325,7 @@ sie ab. Ohne diesen Schritt könnten solche Regeln nie feuern.
 Nach **jeder** der beiden Stufen werden Konzepte zusammengeführt und Deckungen
 nach Jennings-Fischer verschmolzen (§5.2).
 
-**4. Auswertung.** Dreiwertig, von innen nach außen: Bedingungen → Ausdrücke →
+**4. Auswertung.** Von innen nach außen: Bedingungen → Ausdrücke →
 Formeln. Alle Regeln werden bewertet.
 
 **5. Gewinner.** Nach der Logik von v1.2 (§5.4).
@@ -345,7 +345,7 @@ Formeln. Alle Regeln werden bewertet.
 | `#NN` (`#01`…`#05`) | Artenzahl der Gruppe ≥ NN, ergibt 1/0 |
 | `#SC` | Deckung einer Einzelart der Gruppe |
 | `#T$` | Gesamtdeckung **ohne** die Arten der verglichenen Gruppe |
-| `#$$` | höchste Deckung irgendeiner Art, stets mit `EXCEPT` |
+| `#$$` | höchste Deckung irgendeiner Art im Plot, **einschließlich** der verglichenen Gruppe; nur die Form `#$$ EXCEPT <Gruppe>` schließt jene aus |
 | `$NN` (`$25`, `$50`) | Prozentsatz der Gesamtdeckung |
 | `NON` | dasselbe Maß über die Arten außerhalb der Gruppe |
 | `$$C`, `$$N` | Kopfdaten, kategorial bzw. numerisch |
@@ -384,8 +384,29 @@ Wirkung an der Schwelle, Beispiel `<#TC Trees GR 25>` bei 10 %, 9 %, 8 %:
 `&` vor `|`, `NOT` binär. Ein Parser mit gleichrangigen linksassoziativen
 Operatoren läge bei jeder unparenthesierten Kombination falsch.
 
-Dreiwertig nach Kleene: `FALSE ∧ unbekannt = FALSE`, `TRUE ∧ unbekannt =
-unbekannt`, `TRUE ∨ unbekannt = TRUE`. Unbekannt zählt nicht als Treffer.
+**Korrektur gegenüber der ursprünglichen Fassung dieser Spec:** Hier stand
+dreiwertige Kleene-Logik mit Fortpflanzung von „unbekannt". Das beschreibt das
+Einzelskript von 2019, **nicht** die portierte Version 1.2. Diese zwingt vor
+jeder logischen Auswertung alle unauflösbaren Werte auf null:
+
+```r
+if(any(is.na(plot.cond))) warning('NA in plot.cond')
+plot.cond[is.na(plot.cond)] <- 0   # step3and5…R:450-452, ebenso prep.R:62-63
+plot.cond[plot.cond == -Inf] <- 0
+```
+
+Es gibt in v1.2 also **keine** Fortpflanzung von Unbekanntheit. Ein fehlendes
+Kopfdatum, eine nicht auflösbare Gruppe und ein `max()` über die leere Menge
+ergeben alle **0**; der Vergleich liefert danach ganz gewöhnlich wahr oder
+falsch. Die Auswertung ist damit zweiwertig.
+
+Der dreiwertige Typ bleibt im Code erhalten und getestet — er ist korrekt und
+stünde bereit, falls ein künftiges Regelwerk oder eine spätere Upstream-Version
+`NA` wieder durchreicht —, aber der Bedingungslayer erzeugt kein „unbekannt".
+
+Das ändert nichts an der Zusicherung aus §3: Wer ein Kopfdatum nicht liefert,
+bekommt kein Ergebnis für die davon abhängigen Regeln. Nur der Weg dorthin ist
+ein anderer — die Bedingung wird falsch, nicht unbekannt.
 
 ### 5.4 Gewinnerermittlung (v1.2)
 
