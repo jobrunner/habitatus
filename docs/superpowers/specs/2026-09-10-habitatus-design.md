@@ -98,11 +98,71 @@ Je Eintrag ein Name und eine Deckung in Prozent, `0 < c ≤ 100`.
 ### Backbone
 
 Pflichtangabe. Zulässig sind `euro+med` (Identität, keine Tabelle nötig) und die
-Kennungen der 48 mitgelieferten Übersetzungstabellen, darunter `germansl-1.4`.
-Ein weiterer Backbone ist eine Datei im selben Format, kein Code.
+Kennungen der 48 mitgelieferten Übersetzungstabellen. Ein weiterer Backbone ist
+eine Datei im selben Format, kein Code.
 
-Für WCVP und Ehrendorfer existiert **keine** mitgelieferte Tabelle; solche
-Backbones müssen erst erstellt werden.
+### 3.2 Verfügbare Backbones
+
+Die 48 Tabellen stammen aus dem Zenodo-Record
+(`Nomenclature-translation-from-Turboveg-2-databases`) und bilden zusammen
+**450.099 Quellnamen auf 254.952 Ziele** ab. Sie sind nach **Turboveg-2-Datenbanken**
+benannt, nicht nach taxonomischen Backbones — `GermanSL 1.4` ist eine echte
+Referenzliste, `Classify` oder `Sps_Iva` sind Projektdatenbanken. Der
+Request-Parameter heißt deshalb sachlich „Quellnomenklatur", nicht „taxonomischer
+Backbone" im Sinne von GBIF.
+
+Die größten, nach Quellnamen:
+
+| Tabelle | Ziele | Quellnamen |
+|---|---|---|
+| `Classify` | 15.621 | 31.405 |
+| `Europe_Lenoir` | 15.636 | 31.380 |
+| `Classify_Halophyt` | 15.576 | 31.305 |
+| `Europe_Pinus` | 15.695 | 31.061 |
+| `Europe_weed` | 15.352 | 30.702 |
+| `Sps_Iva` | 15.386 | 30.673 |
+| `Europe` | 15.326 | 30.634 |
+| `Europe_EDGG` | 15.265 | 30.540 |
+| `GermanSL 1.3 GrassVeg.DE` | 9.418 | 20.170 |
+| `Vegitaly` | 9.965 | 20.078 |
+| `GermanSL 1.4` | 9.082 | 19.289 |
+
+Die übrigen 37 sind Länder- und Regionaltabellen (Austria, Balkan, Britain,
+Bulgaria, C_Europe und Varianten, Cyprus, Czechia_Slovakia_2015, Euskadi,
+Floranld_2013, France_Sophy, Greece, Greece_Crete, Ireland2008, Italy,
+Italy_Conti, Latvia, Lithuania, Natura, Poland, Poland_forest, Portugal_Estrela,
+Romania, Romania_Indreica, Russia und vier Varianten, South_Slavic, Spain_sivim,
+Switzerland, Turkey, Ukraine_Kiev, Vegitaly_HMMD) zwischen 317 und 11.146
+Quellnamen.
+
+**Nicht verfügbar** und damit vorerst nicht bedienbar: WCVP, Ehrendorfer, die
+GBIF-Backbone und World Flora Online. Für sie müsste eine Tabelle im selben
+Format erst erstellt werden — dieselbe Schwierigkeit wie zuvor, nur an anderer
+Stelle.
+
+### 3.3 Defektdichte in den Backbone-Tabellen
+
+Die Übersetzungstabellen sind **deutlich fehlerhafter als die Haupt-Sektion 1**.
+Gemessen an `GermanSL 1.4` (19.259 Quellnamen):
+
+| | Haupt-Sektion 1 | GermanSL 1.4 | GermanSL 1.3 GrassVeg.DE |
+|---|---|---|---|
+| mehrdeutige Quellnamen | 7 von 100.703 | **26** von 19.259 | 36 von 20.128 |
+| Ketten (Name ist Quelle und Ziel) | 2 | **51** | 63 |
+
+Ein Beispiel: `Atriplex prostrata gr.` steht unter fünf verschiedenen Zielen —
+`Atriplex prostrata aggr.` sowie vier Hybridkombinationen. `Bacidia
+hegetschweileri` steht unter `Bacidia subincompta` und `Bacidia vermifera`.
+
+Die Regeln aus §8 — erster Eintrag gewinnt, keine transitive Auflösung — gelten
+unverändert, greifen hier aber viel häufiger. Beim Laden eines Backbones werden
+die Zähler protokolliert (§9), damit sichtbar ist, wie stark eine Tabelle
+betroffen ist.
+
+**Parser-Detail:** In diesen Dateien stehen **keine Leerzeilen zwischen den
+Blöcken** — anders als in der Haupt-Regelwerksdatei folgt auf die letzte
+eingerückte Zeile direkt der nächste Blockkopf. Der Parser muss Blöcke an der
+Einrückung erkennen, nicht an Trennzeilen.
 
 ### Kopfdaten
 
