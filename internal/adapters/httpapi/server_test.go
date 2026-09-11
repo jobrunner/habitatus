@@ -158,6 +158,68 @@ func TestClassifyEndpointRejectsUnknownBackbone(t *testing.T) {
 	}
 }
 
+func TestClassifyEndpointReportsTruncatedAt10(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/classify", strings.NewReader(goodBody))
+	testServer(t).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got["truncated_at_10"]; !ok {
+		t.Errorf("response is missing truncated_at_10: %v", got)
+	}
+}
+
+func TestMetricsEndpoint(t *testing.T) {
+	srv := testServer(t)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/classify", strings.NewReader(goodBody))
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("classify status = %d, body = %s", rec.Code, rec.Body)
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("metrics status = %d, body = %s", rec.Code, rec.Body)
+	}
+
+	var got struct {
+		Total         int      `json:"total"`
+		Question      int      `json:"question"`
+		Plus          int      `json:"plus"`
+		QuestionShare float64  `json:"question_share"`
+		PlusShare     float64  `json:"plus_share"`
+		Unreachable   []string `json:"unreachable_rules"`
+		NeverFired    []string `json:"never_fired_rules"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Total != 1 {
+		t.Errorf("total = %d, want 1", got.Total)
+	}
+	if got.Unreachable == nil {
+		t.Errorf("unreachable_rules must be present, even if empty, got nil")
+	}
+}
+
+func TestMetricsEndpointRejectsPost(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/metrics", nil)
+	testServer(t).ServeHTTP(rec, req)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d, want 405", rec.Code)
+	}
+}
+
 func TestReadyEndpoint(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)

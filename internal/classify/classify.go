@@ -2,6 +2,8 @@ package classify
 
 import (
 	"fmt"
+	"sort"
+	"sync"
 
 	"github.com/jobrunner/habitatus/internal/esy"
 	"github.com/jobrunner/habitatus/internal/rulepack"
@@ -21,6 +23,37 @@ type Response struct {
 	Matches    []esy.Match
 	Resolution []taxa.Step
 	Versions   map[string]string
+	// TruncatedAt10 reports whether upstream would have dropped matches:
+	// it stores only the first ten hits per plot. We return all of them,
+	// so a caller comparing against published ESy output needs this flag
+	// to know why the lists differ.
+	TruncatedAt10 bool
+}
+
+// truncatedAt10 reports whether upstream would have dropped matches: it
+// stores only the first ten hits per plot. We return all of them and set
+// this flag so the golden master stays comparable.
+func truncatedAt10[T any](ms []T) bool { return len(ms) > 10 }
+
+// Stats are the two operational figures that carry ecological meaning: how
+// often the answer is "?" or "+", and which rules never fire. Both surface
+// errors no test finds — a client that fills one header field wrongly shows
+// up here.
+//
+// NeverFired and Unreachable are reported separately on purpose. 100 of the
+// 312 rules in the real rule file can never fire at all: upstream forces
+// every "#NN Group" expression to FALSE (see rulepack.Expr.AlwaysFalse), and
+// every satisfying assignment of those 100 rules needs one to be true. That
+// is a static property of the rule pack, computed once at load time and
+// exposed as Unreachable. NeverFired excludes it, so it stays the
+// operationally interesting signal: a reachable rule that has not fired in
+// any request so far.
+type Stats struct {
+	Total       int
+	Question    int
+	Plus        int
+	Unreachable []string
+	NeverFired  []string
 }
 
 // Service holds the loaded rule pack and the backbone tables.
@@ -28,12 +61,94 @@ type Service struct {
 	pack      *rulepack.Pack
 	backbones map[string]map[string]string
 	versions  map[string]string
+
+	// allLabels and unreachable are fixed at construction time: allLabels
+	// is every rule label in file order, unreachable is the subset that
+	// can never fire, a static property of the formulas (see Stats).
+	allLabels   []string
+	unreachable map[string]bool
+
+	mu       sync.Mutex
+	total    int
+	question int
+	plus     int
+	fired    map[string]bool
 }
 
 // NewService builds a service. backbones maps a backbone id to its translation
 // table; the id "euro+med" is the identity and needs no table.
 func NewService(pack *rulepack.Pack, backbones map[string]map[string]string, versions map[string]string) *Service {
-	return &Service{pack: pack, backbones: backbones, versions: versions}
+	// Several distinct rules can share the same code with no variant
+	// marker to tell them apart — a rule-file data quirk (e.g. "T3M"
+	// occurs 12 times in the 2025-10-03 file), not a habitatus artefact.
+	// A label is unreachable only when EVERY rule carrying it is
+	// unreachable; one reachable definition makes the whole label
+	// reachable, since Match and the fired set are keyed on the label,
+	// not on which physical definition fired.
+	seen := map[string]bool{}
+	var allLabels []string
+	reachableLabel := map[string]bool{}
+	for _, r := range pack.Rules {
+		label := r.Label()
+		if !seen[label] {
+			seen[label] = true
+			allLabels = append(allLabels, label)
+		}
+		if ruleReachable(r.Formula) {
+			reachableLabel[label] = true
+		}
+	}
+	unreachable := map[string]bool{}
+	for _, label := range allLabels {
+		if !reachableLabel[label] {
+			unreachable[label] = true
+		}
+	}
+	return &Service{
+		pack:        pack,
+		backbones:   backbones,
+		versions:    versions,
+		allLabels:   allLabels,
+		unreachable: unreachable,
+		fired:       map[string]bool{},
+	}
+}
+
+// ruleReachable reports whether a rule's formula can ever evaluate TRUE. It
+// treats every leaf other than an AlwaysFalse one as an independent free
+// variable and asks whether TRUE is reachable at the root — a structural
+// property of the formula's shape, not of any plot. An AlwaysFalse leaf (an
+// "#NN Group" expression, see rulepack.Expr.AlwaysFalse) can only ever be
+// FALSE, so a rule whose every path to TRUE runs through one is unreachable.
+func ruleReachable(n rulepack.Node) bool {
+	reachTrue, _ := reach(n)
+	return reachTrue
+}
+
+// reach returns whether TRUE and whether FALSE are each reachable at n for
+// some assignment of its free leaves.
+func reach(n rulepack.Node) (reachTrue, reachFalse bool) {
+	switch v := n.(type) {
+	case rulepack.Leaf:
+		if v.Expr.AlwaysFalse {
+			return false, true
+		}
+		return true, true
+	case rulepack.And:
+		lt, lf := reach(v.L)
+		rt, rf := reach(v.R)
+		return lt && rt, lf || rf
+	case rulepack.Or:
+		lt, lf := reach(v.L)
+		rt, rf := reach(v.R)
+		return lt || rt, lf && rf
+	case rulepack.Not:
+		// Not is "L AND NOT R".
+		lt, lf := reach(v.L)
+		rt, rf := reach(v.R)
+		return lt && rf, lf || rt
+	}
+	return false, true
 }
 
 // Classify validates, resolves and evaluates one plot.
@@ -73,10 +188,59 @@ func (s *Service) Classify(req Request) (Response, error) {
 
 	env := esy.Env{Groups: s.pack.Groups}
 	res := env.Evaluate(s.pack.Rules, esy.Plot{Records: resolved, Header: header})
+	s.record(res)
 	return Response{
-		Result:     res.Winner,
-		Matches:    res.Matches,
-		Resolution: steps,
-		Versions:   s.versions,
+		Result:        res.Winner,
+		Matches:       res.Matches,
+		Resolution:    steps,
+		Versions:      s.versions,
+		TruncatedAt10: truncatedAt10(res.Matches),
 	}, nil
+}
+
+// record updates the operational counters and the set of rule labels seen
+// to fire, for Stats.
+func (s *Service) record(res esy.Result) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.total++
+	switch res.Winner {
+	case "?":
+		s.question++
+	case "+":
+		s.plus++
+	}
+	for _, m := range res.Matches {
+		s.fired[m.Code+m.Variant] = true
+	}
+}
+
+// Stats returns the operational figures accumulated over every call to
+// Classify so far.
+func (s *Service) Stats() Stats {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	unreachable := make([]string, 0, len(s.unreachable))
+	for label := range s.unreachable {
+		unreachable = append(unreachable, label)
+	}
+	sort.Strings(unreachable)
+
+	var neverFired []string
+	for _, label := range s.allLabels {
+		if s.unreachable[label] || s.fired[label] {
+			continue
+		}
+		neverFired = append(neverFired, label)
+	}
+	sort.Strings(neverFired)
+
+	return Stats{
+		Total:       s.total,
+		Question:    s.question,
+		Plus:        s.plus,
+		Unreachable: unreachable,
+		NeverFired:  neverFired,
+	}
 }

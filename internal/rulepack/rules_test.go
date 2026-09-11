@@ -23,7 +23,10 @@ func TestParseRuleHeaderFixedWidth(t *testing.T) {
 	if len(got) != 4 {
 		t.Fatalf("want 4 rules, got %d", len(got))
 	}
-	want := []struct{ prio int; code, variant, name string }{
+	want := []struct {
+		prio                int
+		code, variant, name string
+	}{
 		{7, "MA211", "", "Arctic coastal saltmarsh"},
 		{4, "N15", "!", "Atlantic and Baltic coastal dune grassland"},
 		{2, "N15", "!!", "Atlantic and Baltic coastal dune grassland"},

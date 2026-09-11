@@ -5,9 +5,9 @@ import "testing"
 func TestTriKleene(t *testing.T) {
 	// Test vectors verified against R (commit 416bab9 upstream).
 	cases := []struct {
-		a, b       Tri
-		and, or    Tri
-		andNot     Tri
+		a, b    Tri
+		and, or Tri
+		andNot  Tri
 	}{
 		{True, True, True, True, False},
 		{True, False, False, True, True},

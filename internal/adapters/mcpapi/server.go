@@ -72,10 +72,11 @@ type stepJSON struct {
 }
 
 type classifyResultJSON struct {
-	Result     string            `json:"result"`
-	Matches    []matchJSON       `json:"matches"`
-	Resolution []stepJSON        `json:"resolution"`
-	Versions   map[string]string `json:"versions"`
+	Result        string            `json:"result"`
+	Matches       []matchJSON       `json:"matches"`
+	Resolution    []stepJSON        `json:"resolution"`
+	Versions      map[string]string `json:"versions"`
+	TruncatedAt10 bool              `json:"truncated_at_10"`
 }
 
 type classifyArgumentsJSON struct {
@@ -279,7 +280,7 @@ func (s *Server) callTool(params json.RawMessage) (any, *rpcError) {
 		return nil, &rpcError{Code: codeInvalidParams, Message: err.Error()}
 	}
 
-	result := classifyResultJSON{Result: out.Result, Versions: out.Versions}
+	result := classifyResultJSON{Result: out.Result, Versions: out.Versions, TruncatedAt10: out.TruncatedAt10}
 	for _, m := range out.Matches {
 		result.Matches = append(result.Matches, matchJSON{Code: m.Code, Variant: m.Variant, Priority: m.Priority})
 	}

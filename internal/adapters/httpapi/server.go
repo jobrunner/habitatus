@@ -41,15 +41,16 @@ type stepJSON struct {
 }
 
 type classifyResponse struct {
-	Result     string            `json:"result"`
-	Matches    []matchJSON       `json:"matches"`
-	Resolution []stepJSON        `json:"resolution"`
-	Versions   map[string]string `json:"versions"`
+	Result        string            `json:"result"`
+	Matches       []matchJSON       `json:"matches"`
+	Resolution    []stepJSON        `json:"resolution"`
+	Versions      map[string]string `json:"versions"`
+	TruncatedAt10 bool              `json:"truncated_at_10"`
 }
 
-// NewServer wires the HTTP routes: POST /api/v1/classify and GET
-// /health/ready. Every error that Service.Classify or JSON decoding raises is
-// the caller's fault, not the server's, and is reported as 400.
+// NewServer wires the HTTP routes: POST /api/v1/classify, GET /metrics and
+// GET /health/ready. Every error that Service.Classify or JSON decoding
+// raises is the caller's fault, not the server's, and is reported as 400.
 func NewServer(s *classify.Service) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/classify", func(w http.ResponseWriter, r *http.Request) {
@@ -95,7 +96,7 @@ func NewServer(s *classify.Service) http.Handler {
 			return
 		}
 
-		out := classifyResponse{Result: res.Result, Versions: res.Versions}
+		out := classifyResponse{Result: res.Result, Versions: res.Versions, TruncatedAt10: res.TruncatedAt10}
 		for _, m := range res.Matches {
 			out.Matches = append(out.Matches, matchJSON{Code: m.Code, Variant: m.Variant, Priority: m.Priority})
 		}
@@ -109,6 +110,8 @@ func NewServer(s *classify.Service) http.Handler {
 		}
 		writeJSON(w, http.StatusOK, out)
 	})
+
+	mux.HandleFunc("/metrics", metricsHandler(s))
 
 	mux.HandleFunc("/health/ready", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

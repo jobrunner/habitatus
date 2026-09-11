@@ -24,6 +24,7 @@ import (
 func main() {
 	addr := flag.String("addr", ":8080", "listen address")
 	rulesPath := flag.String("rules", "", "path to the ESy rule file")
+	backbonesPath := flag.String("backbones", "", "path to the directory of nomenclature translation tables (optional)")
 	mcp := flag.Bool("mcp", false, "serve MCP over stdio instead of HTTP")
 	flag.Parse()
 
@@ -38,13 +39,13 @@ func main() {
 		os.Exit(2)
 	}
 
-	if err := run(log, *addr, *rulesPath, *mcp); err != nil {
+	if err := run(log, *addr, *rulesPath, *backbonesPath, *mcp); err != nil {
 		log.Error("habitatus exited with an error", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(log *slog.Logger, addr, rulesPath string, mcp bool) error {
+func run(log *slog.Logger, addr, rulesPath, backbonesPath string, mcp bool) error {
 	f, err := os.Open(rulesPath)
 	if err != nil {
 		return errors.New("cannot open rule file: " + err.Error())
@@ -79,11 +80,20 @@ func run(log *slog.Logger, addr, rulesPath string, mcp bool) error {
 		"unknown_groups", len(pack.Issues.UnknownGroups),
 	)
 
+	var backbones map[string]map[string]string
+	if backbonesPath != "" {
+		backbones, err = rulepack.LoadBackbones(backbonesPath)
+		if err != nil {
+			return errors.New("cannot load backbone tables: " + err.Error())
+		}
+		log.Info("backbone tables loaded", "path", backbonesPath, "tables", len(backbones))
+	}
+
 	versions := map[string]string{
 		"rulepack":        rulesPath,
 		"rulepack_sha256": digest,
 	}
-	svc := classify.NewService(pack, nil, versions)
+	svc := classify.NewService(pack, backbones, versions)
 
 	if mcp {
 		if err := mcpapi.NewServer(svc).Serve(os.Stdin, os.Stdout); err != nil {
