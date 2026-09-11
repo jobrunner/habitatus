@@ -23,28 +23,63 @@ var (
 		"BLA_COAST": true, "MED_COAST": true, "N_COAST": true,
 	}
 	duneValues = map[string]bool{"Y_DUNES": true, "N_DUNES": true}
-	countries  = loadCountries()
+	countries  = mustLoadCountries(countryCSV)
 )
 
-func loadCountries() map[string]bool {
-	out := map[string]bool{}
-	r := csv.NewReader(strings.NewReader(countryCSV))
-	// The note column has unquoted bare quotes in a few rows (e.g. the
-	// Czech Republic and United Kingdom entries); only the first two
-	// columns matter here, so tolerate that rather than reject the file.
-	r.LazyQuotes = true
-	r.FieldsPerRecord = -1
-	rows, err := r.ReadAll()
+// mustLoadCountries wraps parseCountries for package initialisation. The
+// country table is a build-time asset with no sensible runtime recovery, so
+// any defect fails loudly here rather than silently shrinking the
+// valid-country set — a shrunk set is the worst failure mode, because it
+// would make a legitimate country quietly unusable, with no error anywhere.
+func mustLoadCountries(csvText string) map[string]bool {
+	out, err := parseCountries(csvText)
 	if err != nil {
 		panic("esy-country-names.csv is malformed: " + err.Error())
 	}
-	for i, row := range rows {
-		if i == 0 || len(row) < 2 {
-			continue
-		}
-		out[row[1]] = true
-	}
 	return out
+}
+
+// parseCountries parses the country table strictly: exactly three fields per
+// row (a mismatched row, e.g. a truncated one, is an error, not a silent
+// skip), a non-empty ISO code and country name on every row, and no
+// duplicate code or name.
+func parseCountries(csvText string) (map[string]bool, error) {
+	r := csv.NewReader(strings.NewReader(csvText))
+	// Default settings: the field count is fixed from the header row (3) and
+	// any row with a different count is a hard error, as is any unescaped
+	// quote.
+	rows, err := r.ReadAll()
+	if err != nil {
+		return nil, err
+	}
+
+	out := map[string]bool{}
+	byCode := map[string]bool{}
+	for i, row := range rows {
+		if i == 0 {
+			continue // header
+		}
+		line := i + 1 // 1-based, matching the file
+		if len(row) != 3 {
+			return nil, fmt.Errorf("line %d: want 3 fields, got %d", line, len(row))
+		}
+		code, name := strings.TrimSpace(row[0]), strings.TrimSpace(row[1])
+		if code == "" {
+			return nil, fmt.Errorf("line %d: empty ISO code", line)
+		}
+		if name == "" {
+			return nil, fmt.Errorf("line %d: empty country name", line)
+		}
+		if byCode[code] {
+			return nil, fmt.Errorf("line %d: duplicate ISO code %q", line, code)
+		}
+		if out[name] {
+			return nil, fmt.Errorf("line %d: duplicate country name %q", line, name)
+		}
+		byCode[code] = true
+		out[name] = true
+	}
+	return out, nil
 }
 
 // ValidateHeader checks the plot header against the vocabularies the rules

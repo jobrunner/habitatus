@@ -1,6 +1,9 @@
 package classify
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func validHeader() map[string]string {
 	return map[string]string{
@@ -68,5 +71,69 @@ func TestValidateHeaderAcceptsAllFiftyTwoCountries(t *testing.T) {
 		if err := ValidateHeader(h); err != nil {
 			t.Errorf("country %q rejected: %v", c, err)
 		}
+	}
+}
+
+// TestCountryTableParsesExactlyFiftyTwoCountries guards against a silent
+// truncation of the embedded table: a future edit that drops or merges a row
+// must fail this count, not just "a country stopped being valid" discovered
+// much later.
+func TestCountryTableParsesExactlyFiftyTwoCountries(t *testing.T) {
+	got, err := parseCountries(countryCSV)
+	if err != nil {
+		t.Fatalf("embedded table failed to parse: %v", err)
+	}
+	if len(got) != 52 {
+		t.Errorf("want 52 countries, got %d: %v", len(got), got)
+	}
+}
+
+// TestEmbeddedCountryTableMatchesSource guards against the embedded copy
+// (forced by go:embed's package-directory restriction) drifting from
+// data/esy-country-names.csv, the source of truth. Without this, the two
+// silently diverge and the failure mode looks like "this country stopped
+// being valid" long after the actual cause.
+func TestEmbeddedCountryTableMatchesSource(t *testing.T) {
+	source, err := os.ReadFile("../../data/esy-country-names.csv")
+	if err != nil {
+		t.Fatalf("could not read source table: %v", err)
+	}
+	if string(source) != countryCSV {
+		t.Error("internal/classify/esy-country-names.csv has drifted from data/esy-country-names.csv; copy the source file over the embedded one")
+	}
+}
+
+func TestParseCountriesRejectsTruncatedRow(t *testing.T) {
+	_, err := parseCountries("iso_alpha2,esy_country,note\nDE,Germany\n")
+	if err == nil {
+		t.Error("a row with too few fields must be rejected, not silently skipped")
+	}
+}
+
+func TestParseCountriesRejectsEmptyCode(t *testing.T) {
+	_, err := parseCountries("iso_alpha2,esy_country,note\n,Germany,\n")
+	if err == nil {
+		t.Error("an empty ISO code must be rejected")
+	}
+}
+
+func TestParseCountriesRejectsEmptyName(t *testing.T) {
+	_, err := parseCountries("iso_alpha2,esy_country,note\nDE,,\n")
+	if err == nil {
+		t.Error("an empty country name must be rejected")
+	}
+}
+
+func TestParseCountriesRejectsDuplicateCode(t *testing.T) {
+	_, err := parseCountries("iso_alpha2,esy_country,note\nDE,Germany,\nDE,Austria,\n")
+	if err == nil {
+		t.Error("a duplicate ISO code must be rejected")
+	}
+}
+
+func TestParseCountriesRejectsDuplicateName(t *testing.T) {
+	_, err := parseCountries("iso_alpha2,esy_country,note\nDE,Germany,\nAT,Germany,\n")
+	if err == nil {
+		t.Error("a duplicate country name must be rejected")
 	}
 }

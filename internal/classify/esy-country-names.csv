@@ -10,7 +10,7 @@ BG,Bulgaria,
 CA,Canada,ausserhalb Europas; steht so im User-Guide
 HR,Croatia,
 CY,Cyprus,
-CZ,Czech Republic,ESy nutzt die aeltere Form, nicht "Czechia"
+CZ,Czech Republic,"ESy nutzt die aeltere Form, nicht ""Czechia"""
 DK,Denmark,
 EE,Estonia,
 FO,Faroe Islands,
@@ -42,12 +42,12 @@ RO,Romania,
 RU,Russian Federation,ESy nutzt den Langnamen
 SM,San Marino,
 RS,Serbia,
-SK,Slovak Republic,ESy nutzt die aeltere Form, nicht "Slovakia"
+SK,Slovak Republic,"ESy nutzt die aeltere Form, nicht ""Slovakia"""
 SI,Slovenia,
 ES,Spain,
-SJ,Svalbard and Jan Mayen Is,abgekuerzt wie im User-Guide, inkl. "Is"
+SJ,Svalbard and Jan Mayen Is,"abgekuerzt wie im User-Guide, inkl. ""Is"""
 SE,Sweden,
 CH,Switzerland,
-TR,Turkey,ESy nutzt "Turkey", nicht "Tuerkiye"
+TR,Turkey,"ESy nutzt ""Turkey"", nicht ""Tuerkiye"""
 UA,Ukraine,
 GB,United Kingdom,"9 Regeln pruefen stattdessen ""Britain"" und feuern mit diesem Wert nicht; siehe Spec 8"
