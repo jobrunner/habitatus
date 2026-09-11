@@ -82,8 +82,19 @@ func TestGroupsRealFile(t *testing.T) {
 			distinct[m] = true
 		}
 	}
-	if len(distinct) != 8477 {
-		t.Errorf("got %d distinct members, want 8477", len(distinct))
+	// 8492, not 8477: ParseGroups keeps members' trailing whitespace on
+	// purpose (0e23c97), matching upstream's trim.leading rather than a
+	// full trim (ParsingExpertFile.R:37-38). 27 members of this file carry
+	// a trailing blank and therefore never match a plot's taxon name,
+	// exactly as upstream never matches them; trimming here would repair
+	// the rule file instead of porting it. Both-side trimming would
+	// collapse those 27 onto members already present without the blank,
+	// giving 8477 distinct names instead — the number this assertion held
+	// until 0e23c97 changed the trimming and it went stale, unnoticed for
+	// four tasks because this test is ESY_FILE-gated and `go test ./...`
+	// skips it. If this number moves again, that reason must move with it.
+	if len(distinct) != 8492 {
+		t.Errorf("got %d distinct members, want 8492", len(distinct))
 	}
 	if len(groups["Trees"]) != 323 {
 		t.Errorf("got %d members in Trees, want 323", len(groups["Trees"]))

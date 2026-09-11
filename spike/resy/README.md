@@ -9,6 +9,25 @@ behind.
     make fixtures   # regenerate testdata/golden/
     make golden     # run the golden master against them
 
+## Which `make` target covers what
+
+Three commands, three different guarantees — pick the narrowest one that
+answers the question at hand:
+
+| command | covers | takes |
+| --- | --- | --- |
+| `make test` | the ordinary suite, `go test ./...` | seconds |
+| `make check` | `make test`, plus every test gated behind `ESY_FILE` — direct assertions against the real rule file (parse counts, formula shapes, reachability) — that the plain suite silently skips | seconds |
+| `make golden` | the golden master: habitatus vs. upstream R over all 11,337 fixture plots | ~280s |
+
+`make check` exists because a test gated behind an environment variable is a
+test nobody runs by default. `TestGroupsRealFile` asserted a stale distinct-
+member count for four tasks — correct when written, made stale by a later,
+correct fix to `ParseGroups` — and nothing caught it, because `go test ./...`
+skips every `ESY_FILE`-gated test and nobody was running them by hand. Run
+`make check` before trusting any change that touches parsing, formulas, or
+the rule pack; it is the one command meant to run all of them together.
+
 ## Files
 
 | file | what it does |
