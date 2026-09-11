@@ -22,14 +22,27 @@ type Env struct {
 	Groups map[string][]string
 }
 
-// nan marks a value that could not be computed — a missing header or an
-// unresolved qualified group reference. It propagates to Unknown, mirroring
-// R's NA.
-var nan = math.NaN()
-
 // EvalExpr evaluates one membership expression and returns its truth value
 // plus the numeric values of both sides. The numbers are the intermediate
 // results the golden master compares against upstream's plot.cond matrix.
+//
+// Tri and its Kleene operators (And/Or/AndNot, used by the formula layer
+// above this one) stay available, but EvalExpr itself never returns Unknown.
+// v1.2 zeroes every unresolved condition value before any logical evaluation
+// happens (step3and5_extract-and-solve-membership-conditions.R:450-452, and
+// again in prep.R:62-63):
+//
+//	if(any(is.na(plot.cond))) warning('NA in plot.cond')
+//	plot.cond[is.na(plot.cond)] <- 0
+//	plot.cond[plot.cond == -Inf] <- 0
+//
+// So there is no NA/Unknown propagation in the implementation being ported: a
+// missing header value, an unresolvable qualified group reference, or an
+// empty max() all become the number 0, and the comparison then resolves to
+// an ordinary True or False. This overturns the three-valued design in spec
+// §5.3, which describes the 2019 standalone script rather than v1.2. Tri
+// stays exactly as it is for the formula layer, and for a future rule pack
+// or upstream version that reintroduces NA.
 func (e Env) EvalExpr(x rulepack.Expr, p Plot) (Tri, float64, float64) {
 	left := e.operandValue(x.Left, p, x)
 	if x.Op == "" {
@@ -40,12 +53,9 @@ func (e Env) EvalExpr(x rulepack.Expr, p Plot) (Tri, float64, float64) {
 		return e.compareWithinSet(x, p, left)
 	}
 	if isCategorical(x.Left) {
-		return e.compareCategorical(x, p), nan, nan
+		return e.compareCategorical(x, p), 0, 0
 	}
 	right := e.operandValue(x.Right, p, x)
-	if math.IsNaN(left) || math.IsNaN(right) {
-		return Unknown, left, right
-	}
 	switch x.Op {
 	case "GR":
 		return FromBool(left > right), left, right
@@ -54,18 +64,22 @@ func (e Env) EvalExpr(x rulepack.Expr, p Plot) (Tri, float64, float64) {
 	case "EQ":
 		return FromBool(left == right), left, right
 	}
-	return Unknown, left, right
+	return False, left, right
 }
 
 func isCategorical(o rulepack.Operand) bool {
 	return len(o.Atoms) == 1 && o.Atoms[0].Kind == "$$C"
 }
 
+// compareCategorical compares a categorical header field. R turns the header
+// column into factor levels and compares level numbers; a missing value
+// becomes factor level 0, which matches no real level — i.e. false, not
+// Unknown (see EvalExpr's doc comment).
 func (e Env) compareCategorical(x rulepack.Expr, p Plot) Tri {
 	field := x.Left.Atoms[0].Name
 	have, ok := p.Header[field]
 	if !ok || have == "" {
-		return Unknown
+		return False
 	}
 	return FromBool(have == x.Right.Literal)
 }
@@ -75,29 +89,40 @@ func (e Env) compareCategorical(x rulepack.Expr, p Plot) Tri {
 // comparison set (or, for an atom with no qualifier, every other group at
 // all — the qualifier is what defines "the same set").
 func (e Env) compareWithinSet(x rulepack.Expr, p Plot, left float64) (Tri, float64, float64) {
-	if math.IsNaN(left) {
-		return Unknown, left, nan
-	}
 	a := x.Left.Atoms[0]
 	if isCountPrefixKind(a.Kind) {
 		// "#03 Group" is a standalone predicate: at least N species present.
-		return FromBool(left > 0), left, nan
+		return FromBool(left > 0), left, 0
 	}
-	own := groupKey(a)
+	best := e.bestOfComparisonSet(a.Kind, a.Qualifier, groupKey(a), p)
+	return FromBool(left > best), left, best
+}
+
+// bestOfComparisonSet returns the highest value of the named measure kind
+// over every OTHER group sharing the given qualifier — the "+NN comparison
+// set" of spec 5.1 — excluding the group itself (ownKey). An atom with no
+// qualifier is compared against every other group. Both compareWithinSet
+// (operator-less expressions) and NON atoms (see measure) resolve to this;
+// R implements the same restriction in both places, step3and5…R:361-380:
+//
+//	# only groups of the same set are compared with each other
+//	# at the same time the group itself is excluded
+//	group.set <- substr(conditions.wn[j],5,7)
+//	index9 <- which(substr(pgna,5,7)==group.set & pgna!=conditions.wn[j])
+func (e Env) bestOfComparisonSet(kind, qualifier, ownKey string, p Plot) float64 {
 	best := 0.0
 	for key, members := range e.Groups {
-		if key == own {
+		if key == ownKey {
 			continue
 		}
-		if a.Qualifier != "" && !strings.HasPrefix(key, a.Qualifier+" ") {
-			continue // not in the same comparison set
+		if qualifier != "" && !strings.HasPrefix(key, qualifier+" ") {
+			continue
 		}
-		v := computeMeasure(a.Kind, coversOf(p, toSet(members)))
-		if !math.IsNaN(v) && v > best {
+		if v := computeMeasure(kind, coversOf(p, toSet(members))); v > best {
 			best = v
 		}
 	}
-	return FromBool(left > best), left, best
+	return best
 }
 
 // groupKey is the lookup key ParseGroups produces for a group header: the
@@ -116,27 +141,30 @@ func (e Env) operandValue(o rulepack.Operand, p Plot, x rulepack.Expr) float64 {
 		return e.literalValue(o.Literal, p)
 	}
 	if len(o.Atoms) == 0 {
-		return nan
+		return 0
 	}
 	a := o.Atoms[0]
 
-	// Header atoms.
+	// Header atoms. A missing or unparsable value becomes 0 (see EvalExpr).
 	if a.Kind == "$$N" {
 		v, ok := p.Header[a.Name]
 		if !ok || v == "" {
-			return nan
+			return 0
 		}
 		f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
 		if err != nil {
-			return nan
+			return 0
 		}
 		return f
 	}
 
-	// "#T$" and "#$$" with no group name of their own take the group named
-	// on the other side of the expression.
+	// A bare "#T$" with no group name of its own takes the group named on
+	// the other side of the expression (spec 5.1) — but only when it has no
+	// EXCEPT of its own; see measure() for why EXCEPT changes everything.
+	// "#$$" never borrows this way: every real occurrence is either bare
+	// (plot-wide maximum) or carries its own EXCEPT group directly.
 	atoms := o.Atoms
-	if (a.Kind == "#T$" || a.Kind == "#$$") && allNamesEmpty(atoms) {
+	if a.Kind == "#T$" && len(o.Except) == 0 && allNamesEmpty(atoms) {
 		atoms = x.Left.Atoms
 	}
 	return e.measure(a, atoms, o.Except, p)
@@ -155,13 +183,13 @@ func (e Env) literalValue(lit string, p Plot) float64 {
 	if strings.HasPrefix(lit, "$") {
 		pct, err := strconv.ParseFloat(lit[1:], 64)
 		if err != nil {
-			return nan
+			return 0
 		}
 		return e.plotTotal(p, nil) * pct / 100
 	}
 	f, err := strconv.ParseFloat(lit, 64)
 	if err != nil {
-		return nan
+		return 0
 	}
 	return f
 }
@@ -172,36 +200,56 @@ func (e Env) literalValue(lit string, p Plot) float64 {
 func (e Env) measure(lead rulepack.Atom, atoms, except []rulepack.Atom, p Plot) float64 {
 	switch lead.Kind {
 	case "#T$":
-		// Total plot cover excluding the compared group. #T$ never combines
-		// with its own EXCEPT — it already IS an exclusion.
+		if len(except) > 0 {
+			// "#T$ EXCEPT <group>" occurs twice in the real file. R's
+			// "fourth: deal with EXCEPT only" block builds the base set to
+			// exclude from substr(a[1], 5, nchar(a[1])) where a[1] is the
+			// text "#T$" itself (3 characters) — substr with a start past
+			// the string's end yields "", so the base set is always empty,
+			// no relevé rows are ever written for this condition, and the
+			// value stays at R's zero-filled default. The named EXCEPT
+			// group is never actually used. Reproduced verbatim, defect and
+			// all: step3and5…R:205-225.
+			return 0
+		}
 		in, ok := e.membersChecked(atoms, nil)
 		if !ok {
-			return nan
+			return 0
 		}
 		return e.plotTotal(p, in)
 	case "#$$":
-		// Highest single cover outside the compared group.
-		in, ok := e.membersChecked(atoms, nil)
+		if len(except) == 0 {
+			// Bare "#$$" (all 74 real occurrences) is the plot-wide maximum
+			// cover, INCLUDING the group being compared — not "always with
+			// EXCEPT" as originally assumed. step3and5…R:296-301.
+			return maxOf(coversOutside(p, nil))
+		}
+		// "#$$ EXCEPT <group>": the maximum over species NOT in that named
+		// group. Zero real occurrences, but R implements it,
+		// step3and5…R:305-317.
+		in, ok := e.membersChecked(except, nil)
 		if !ok {
-			return nan
+			return 0
 		}
 		return e.highestOutside(p, in)
+	case "NON":
+		// NON compares against the other groups of the SAME +NN comparison
+		// set, exactly like an operator-less expression — it is not a
+		// measure over the complement species set. See
+		// bestOfComparisonSet's doc comment for the R citation.
+		return e.bestOfComparisonSet(lead.Inner, lead.Qualifier, groupKey(lead), p)
 	}
 
 	in, ok := e.membersChecked(atoms, except)
 	if !ok {
-		return nan
-	}
-	if lead.Kind == "NON" {
-		// NON is a composite atom: Inner names the measure, computed over
-		// the species OUTSIDE the group, not TotalCover of it.
-		return computeMeasure(lead.Inner, coversOutside(p, in))
+		return 0
 	}
 	return computeMeasure(lead.Kind, coversOf(p, in))
 }
 
-// computeMeasure evaluates one condition kind (or a NON atom's Inner
-// measure) over an already-resolved set of covers.
+// computeMeasure evaluates one condition kind over an already-resolved set
+// of covers (also used, with a NON atom's Inner kind, inside
+// bestOfComparisonSet).
 func computeMeasure(kind string, covers []float64) float64 {
 	switch {
 	case kind == "#TC":
@@ -221,7 +269,7 @@ func computeMeasure(kind string, covers []float64) float64 {
 		// A bare taxon name: its own cover.
 		return maxOf(covers)
 	}
-	return nan
+	return 0
 }
 
 func isCountPrefixKind(k string) bool {
@@ -231,7 +279,9 @@ func isCountPrefixKind(k string) bool {
 // membersChecked resolves a union of atoms (minus an except union) to the set
 // of member taxon names. Each atom is looked up as a group first; only when
 // that fails does it fall back to being a bare taxon name — never guessed
-// from its spelling. See resolveInto.
+// from its spelling. See resolveInto. ok is false only when a qualified
+// group reference cannot be resolved; callers turn that into the value 0
+// (see EvalExpr's doc comment), not Unknown.
 func (e Env) membersChecked(atoms, except []rulepack.Atom) (map[string]bool, bool) {
 	in := map[string]bool{}
 	for _, a := range atoms {
@@ -260,7 +310,7 @@ func (e Env) membersChecked(atoms, except []rulepack.Atom) (map[string]bool, boo
 //  1. Its key (groupKey: qualifier + name, or just name) names a known
 //     group — use its members.
 //  2. Otherwise, if the atom carries a qualifier, a group was meant and is
-//     missing: report failure so the whole condition becomes Unknown.
+//     missing: report failure so the caller falls back to the value 0.
 //  3. Otherwise, treat the name as a single taxon. This is deliberately NOT
 //     guessed from the spelling (e.g. a hyphen) — "Abies borisii-regis" is a
 //     bare taxon name that happens to contain a hyphen, and guessing by
@@ -306,6 +356,8 @@ func coversOf(p Plot, in map[string]bool) []float64 {
 	return out
 }
 
+// coversOutside returns the covers of every record NOT in in. A nil map
+// matches nothing, so this also serves as "every cover in the plot".
 func coversOutside(p Plot, in map[string]bool) []float64 {
 	var out []float64
 	for _, r := range p.Records {

@@ -109,11 +109,68 @@ func TestEvalTotalCoverExcludingGroup(t *testing.T) {
 	}
 }
 
+// TestEvalPlotWideMaximumCover: a bare "#$$" — the only form that occurs in
+// the real 2025 file (74 times, never with EXCEPT) — is the plot-wide
+// maximum cover, INCLUDING the compared group. step3and5…R:296-301.
+func TestEvalPlotWideMaximumCover(t *testing.T) {
+	_, _, right := evalRaw(t, "#SC Trees GE #$$")
+	if math.Abs(right-40) > 1e-9 {
+		t.Errorf("#$$ = %v, want 40 (plot-wide max, Anemone)", right)
+	}
+}
+
+// TestEvalGroupDominatingPlotCanNeverBeatPlotMaximum reproduces the
+// consequence of TestEvalPlotWideMaximumCover, not a repair of it: since
+// bare "#$$" includes the compared group, "<#SC G GR #$$>" can never be
+// true — the group's own maximum is always one of the candidates for the
+// plot maximum, so it can equal but never exceed it. 13 real conditions have
+// exactly this shape. Here Trees (max 10) dominates every other species, yet
+// the condition must still be FALSE.
+func TestEvalGroupDominatingPlotCanNeverBeatPlotMaximum(t *testing.T) {
+	env := Env{Groups: map[string][]string{
+		"Trees": {"Fagus sylvatica", "Quercus robur", "Carpinus betulus"},
+	}}
+	plot := Plot{Records: []taxa.Record{
+		{Name: "Fagus sylvatica", Cover: 90},
+		{Name: "Quercus robur", Cover: 9},
+		{Name: "Carpinus betulus", Cover: 8},
+	}}
+	x, err := rulepack.ParseExpr("#SC Trees GR #$$")
+	if err != nil {
+		t.Fatalf("ParseExpr: %v", err)
+	}
+	got, left, right := env.EvalExpr(x, plot)
+	if left != right {
+		t.Errorf("left = %v, right = %v, want equal (Trees' own max IS the plot max)", left, right)
+	}
+	if got != False {
+		t.Errorf("Trees dominating GR #$$ = %v, want FALSE — a group can never exceed a plot maximum it is part of", got)
+	}
+}
+
+// TestEvalHighestCoverOutsideGroup: "#$$ EXCEPT <group>" does not occur in
+// the real file, but R implements it (step3and5…R:305-317) as the maximum
+// cover of species NOT in the named group.
 func TestEvalHighestCoverOutsideGroup(t *testing.T) {
 	// #$$ EXCEPT Trees: highest single cover outside Trees = Anemone 40.
 	_, _, right := evalRaw(t, "#SC Trees GE #$$ EXCEPT Trees")
 	if math.Abs(right-40) > 1e-9 {
-		t.Errorf("#$$ = %v, want 40", right)
+		t.Errorf("#$$ EXCEPT = %v, want 40", right)
+	}
+}
+
+// TestEvalTotalCoverExcludingGroupWithExceptIsAlwaysZero reproduces a v1.2
+// defect, not a repair of it: "#T$ EXCEPT <group>" occurs twice in the real
+// file. R's "fourth: deal with EXCEPT only" block extracts the base set from
+// substr(a[1], 5, nchar(a[1])) where a[1] is the literal text "#T$" (3
+// characters) — a start position past the string's end, which substr
+// resolves to "". The base set is therefore always empty, no relevé rows are
+// ever assigned, and the value stays at R's zero-filled default; the named
+// EXCEPT group is never actually consulted. step3and5…R:205-225.
+func TestEvalTotalCoverExcludingGroupWithExceptIsAlwaysZero(t *testing.T) {
+	_, _, right := evalRaw(t, "#TC Trees GR #T$ EXCEPT #TC Shrubs")
+	if right != 0 {
+		t.Errorf("#T$ EXCEPT ... = %v, want 0 (R defect, reproduced verbatim)", right)
 	}
 }
 
@@ -151,29 +208,36 @@ func TestEvalNumericHeader(t *testing.T) {
 	}
 }
 
-func TestEvalMissingHeaderIsUnknown(t *testing.T) {
+// TestEvalMissingHeaderBecomesZero: v1.2 does not propagate NA
+// (step3and5…R:450-452, prep.R:62-63 — plot.cond[is.na(plot.cond)] <- 0). A
+// missing header value becomes the number 0 and the comparison resolves to
+// an ordinary truth value, never Unknown.
+func TestEvalMissingHeaderBecomesZero(t *testing.T) {
 	x, _ := rulepack.ParseExpr("$$N Ecoreg EQ 664")
-	got, _, _ := testEnv().EvalExpr(x, testPlot())
-	if got != Unknown {
-		t.Errorf("missing header = %v, want Unknown", got)
+	got, left, _ := testEnv().EvalExpr(x, testPlot())
+	if left != 0 {
+		t.Errorf("missing header value = %v, want 0", left)
+	}
+	if got != False {
+		t.Errorf("missing header EQ 664 = %v, want FALSE (0 != 664)", got)
 	}
 }
 
-// TestEvalUnknownQualifiedGroupIsUnknown covers correction 2, step 2: an atom
-// that carries a qualifier but whose key resolves to no group in Env.Groups
-// means a group was meant and is missing — the condition is Unknown, not a
-// count of zero.
-func TestEvalUnknownQualifiedGroupIsUnknown(t *testing.T) {
+// TestEvalUnknownQualifiedGroupBecomesZero covers correction 2, step 2: an
+// atom that carries a qualifier but whose key resolves to no group in
+// Env.Groups means a group was meant and is missing. Per finding 4, that
+// still becomes the value 0 (never Unknown), so "GR 5" is FALSE.
+func TestEvalUnknownQualifiedGroupBecomesZero(t *testing.T) {
 	x, err := rulepack.ParseExpr("#TC +99 Nonexistent-group GR 5")
 	if err != nil {
 		t.Fatalf("ParseExpr: %v", err)
 	}
 	got, left, _ := testEnv().EvalExpr(x, testPlot())
-	if got != Unknown {
-		t.Errorf("unknown qualified group = %v, want Unknown", got)
+	if left != 0 {
+		t.Errorf("left = %v, want 0", left)
 	}
-	if !math.IsNaN(left) {
-		t.Errorf("left = %v, want NaN", left)
+	if got != False {
+		t.Errorf("unknown qualified group GR 5 = %v, want FALSE (0 GR 5)", got)
 	}
 }
 
@@ -213,26 +277,43 @@ func TestEvalBareTaxonName(t *testing.T) {
 	}
 }
 
-// TestEvalNonInnerMeasure covers correction 3: NON is a composite atom whose
-// Inner field names the measure to compute over the species OUTSIDE the
-// group. Outside Trees: Corylus (30) and Anemone (40). ##C is the plain sum,
-// 70 — NOT TotalCover's Jennings-Fischer union, which would give 58. Using
-// the wrong measure here would silently produce 58 instead of 70, so this
-// assertion is what actually pins Inner down.
-func TestEvalNonInnerMeasure(t *testing.T) {
-	x, err := rulepack.ParseExpr("NON ##C Trees GR 0")
+// TestEvalNonComparesWithinQualifierSet: R v1.2's NON is NOT a measure over
+// the complement species set (my original correction 3 was wrong). It
+// compares against the OTHER groups of the SAME +NN comparison set, exactly
+// like an operator-less expression (step3and5…R:361-380 — "only groups of
+// the same set are compared with each other"). Inner still names which
+// measure kind is used for that comparison.
+//
+// Group B has two species so its ##C (plain sum, 30) differs from what #TC
+// (Jennings-Fischer union, 28) would give — this is what actually pins Inner
+// down. Group C shares no qualifier with A and has by far the largest cover
+// (99), so it must be excluded; if the qualifier restriction were dropped,
+// A's NON value would wrongly become 99 instead of 30.
+func TestEvalNonComparesWithinQualifierSet(t *testing.T) {
+	env := Env{Groups: map[string][]string{
+		"+10 A": {"SpA"},
+		"+10 B": {"SpB1", "SpB2"},
+		"+11 C": {"SpC"},
+	}}
+	plot := Plot{Records: []taxa.Record{
+		{Name: "SpA", Cover: 5},
+		{Name: "SpB1", Cover: 20},
+		{Name: "SpB2", Cover: 10},
+		{Name: "SpC", Cover: 99},
+	}}
+	x, err := rulepack.ParseExpr("NON ##C +10 A GR 0")
 	if err != nil {
 		t.Fatalf("ParseExpr: %v", err)
 	}
-	got, left, _ := testEnv().EvalExpr(x, testPlot())
-	if math.Abs(left-70) > 1e-9 {
-		t.Errorf("NON ##C Trees = %v, want 70 (30+40 plain sum)", left)
+	got, left, _ := env.EvalExpr(x, plot)
+	if math.Abs(left-30) > 1e-9 {
+		t.Errorf("NON ##C +10 A = %v, want 30 (##C of +10 B, the only other group in its set)", left)
 	}
 	if got != True {
-		t.Errorf("70 GR 0 = %v, want TRUE", got)
+		t.Errorf("30 GR 0 = %v, want TRUE", got)
 	}
-	if wrong := TotalCover([]float64{30, 40}); math.Abs(left-wrong) < 1e-9 {
-		t.Fatalf("test is not distinguishing: TotalCover would also give %v", wrong)
+	if wrong := TotalCover([]float64{20, 10}); math.Abs(left-wrong) < 1e-9 {
+		t.Fatalf("test is not distinguishing ##C from #TC: both would give %v", wrong)
 	}
 }
 
