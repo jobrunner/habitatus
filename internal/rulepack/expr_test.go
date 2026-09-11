@@ -135,6 +135,79 @@ func TestExtractExpressions(t *testing.T) {
 	}
 }
 
+// TestParseExprSCExcept covers upstream's step 3B: an expression whose
+// right-hand side names a "#SC" group gets "EXCEPT <left-hand side>" appended,
+// so the group maximum is taken over every species except the one being
+// compared (ParsingExpertFile.R:404-430).
+func TestParseExprSCExcept(t *testing.T) {
+	cases := []struct {
+		in   string
+		want Expr
+	}{
+		{
+			in: "Fagus sylvatica GR #SC Trees",
+			want: Expr{
+				Left: Operand{Atoms: []Atom{{Name: "Fagus sylvatica"}}},
+				Op:   "GR",
+				Right: Operand{
+					Atoms:  []Atom{{Kind: "#SC", Name: "Trees"}},
+					Except: []Atom{{Name: "Fagus sylvatica"}},
+				},
+			},
+		},
+		{
+			// "#SC" on the left-hand side alone triggers nothing.
+			in: "#SC Charoids GE #$$",
+			want: Expr{
+				Left:  Operand{Atoms: []Atom{{Kind: "#SC", Name: "Charoids"}}},
+				Op:    "GE",
+				Right: Operand{Atoms: []Atom{{Kind: "#$$"}}},
+			},
+		},
+	}
+	for _, c := range cases {
+		got, err := ParseExpr(c.in)
+		if err != nil {
+			t.Fatalf("%q: %v", c.in, err)
+		}
+		if !exprEqual(got, c.want) {
+			t.Errorf("%q:\n got %+v\nwant %+v", c.in, got, c.want)
+		}
+	}
+}
+
+// TestParseExprAlwaysFalse covers upstream's degenerate expressions. An
+// expression that does not split into a left and a right condition evaluates
+// to a number rather than a logical, and step 8 overwrites every numeric
+// result with FALSE (step3and5...R:493). Upstream splits conditions on the
+// SPACED operators " GR ", " GE ", " EQ " only, so an expression whose only
+// operator is glued to its operand never splits.
+func TestParseExprAlwaysFalse(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		// Glued operator: "GR05" leaves the expression unsplit.
+		{"#TC Cliff-ferns GR05", true},
+		// "#NN Group" carries no operator at all and is excluded from the
+		// "GR NON" rewrite, so it too stays unsplit.
+		{"#03 Coastal-saltmarsh-specialists", true},
+		{"#02 +04 R22-Low-and-medium-altitude-hay-meadow", true},
+		// No operator, but not a "#NN" form: upstream appends " GR NON <self>".
+		{"##Q +12 Coastal-saltmarsh-species", false},
+		{"#TC Trees GR 25", false},
+	}
+	for _, c := range cases {
+		got, err := ParseExpr(c.in)
+		if err != nil {
+			t.Fatalf("%q: %v", c.in, err)
+		}
+		if got.AlwaysFalse != c.want {
+			t.Errorf("%q: AlwaysFalse = %v, want %v", c.in, got.AlwaysFalse, c.want)
+		}
+	}
+}
+
 func exprEqual(a, b Expr) bool {
 	return a.Op == b.Op && operandEqual(a.Left, b.Left) && operandEqual(a.Right, b.Right)
 }

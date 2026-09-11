@@ -40,8 +40,66 @@ func ParseExpr(s string) (Expr, error) {
 		if e.Right, err = parseOperand(right, true); err != nil {
 			return Expr{}, fmt.Errorf("right of %q: %w", s, err)
 		}
+		applySCExcept(&e)
 	}
+	e.AlwaysFalse = isAlwaysFalse(s)
 	return e, nil
+}
+
+// applySCExcept reproduces upstream's step 3B (ParsingExpertFile.R:404-430).
+// When the right-hand side names a "#SC" group, upstream appends "EXCEPT
+// <left-hand side>" to the expression, so the group's maximum cover is taken
+// over every member except the taxon or group being compared against it:
+//
+//	index4 <- grep("#SC", b[[2]])
+//	membership.expressions[index6] <- paste(membership.expressions[index6],
+//	                                        "EXCEPT", b[[1]][index4[i]], sep=" ")
+//
+// Without it "<Fagus sylvatica GR #SC Trees>" compares Fagus against a maximum
+// that includes Fagus itself and can never be true.
+func applySCExcept(e *Expr) {
+	if len(e.Right.Except) > 0 {
+		return
+	}
+	for _, a := range e.Right.Atoms {
+		if a.Kind == "#SC" {
+			e.Right.Except = e.Left.Atoms
+			return
+		}
+	}
+}
+
+// isAlwaysFalse reports whether upstream leaves this expression as a bare
+// number instead of a comparison. Upstream builds its conditions by splitting
+// the expression text on the SPACED operators only
+// (ParsingExpertFile.R:432-434):
+//
+//	membership.conditions2 <- unlist(strsplit(membership.expressions, " GR "))
+//
+// so an expression that contains no " GR "/" GE "/" EQ " stays a single
+// condition, its evaluated form is a bare "colN", and step 8 discards it:
+//
+//	logi1[which(unlist(lapply(logi1, is.numeric)))] <- FALSE
+//
+// Two shapes reach that state. An expression whose operator is glued to its
+// operand ("#TC Cliff-ferns GR05", the only one in the 2025-10-03 file), and
+// the "#NN Group" minimum-species-count form, which has no operator and is
+// explicitly excluded from the "GR NON" completion by
+// ParsingExpertFile.R:237 testing whether character 3 is a digit. Every other
+// operator-less expression gets " GR NON <self>" appended and is evaluated
+// normally.
+func isAlwaysFalse(s string) bool {
+	spaced := strings.Contains(s, " GR ") || strings.Contains(s, " GE ") ||
+		strings.Contains(s, " EQ ")
+	if spaced {
+		return false
+	}
+	any := strings.Contains(s, "GR") || strings.Contains(s, "GE") ||
+		strings.Contains(s, "EQ")
+	if any {
+		return true
+	}
+	return len(s) >= 3 && s[2] >= '0' && s[2] <= '9'
 }
 
 // splitOnOperator finds the last standalone GR/GE/EQ occurrence: preceded by

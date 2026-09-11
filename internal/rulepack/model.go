@@ -48,6 +48,11 @@ type Expr struct {
 	Left  Operand
 	Op    string // "GR", "GE", "EQ", or "" when there is no right-hand side
 	Right Operand
+	// AlwaysFalse marks an expression that upstream never evaluates as a
+	// comparison at all: it reduces to a single numeric condition, and
+	// v1.2 replaces every numeric expression result with FALSE. See
+	// ParseExpr for the two shapes this happens to and the R citation.
+	AlwaysFalse bool
 }
 
 // Node is a node of a parsed membership formula.

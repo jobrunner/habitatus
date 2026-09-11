@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jobrunner/habitatus/internal/cover"
 	"github.com/jobrunner/habitatus/internal/rulepack"
 	"github.com/jobrunner/habitatus/internal/taxa"
 )
@@ -44,6 +45,13 @@ type Env struct {
 // stays exactly as it is for the formula layer, and for a future rule pack
 // or upstream version that reintroduces NA.
 func (e Env) EvalExpr(x rulepack.Expr, p Plot) (Tri, float64, float64) {
+	if x.AlwaysFalse {
+		// Upstream never compares this expression: it stays a single numeric
+		// condition and step 8 replaces every numeric result with FALSE. The
+		// left value is still computed and returned, because the golden
+		// master compares condition values as well as truth values.
+		return False, e.operandValue(x.Left, p, x), 0
+	}
 	left := e.operandValue(x.Left, p, x)
 	if x.Op == "" {
 		// Left-hand-only expressions carry an implicit "GR NON <same
@@ -75,10 +83,24 @@ func isCategorical(o rulepack.Operand) bool {
 // column into factor levels and compares level numbers; a missing value
 // becomes factor level 0, which matches no real level — i.e. false, not
 // Unknown (see EvalExpr's doc comment).
+//
+// A field the header does not carry at all is different from one carrying an
+// empty value. Upstream fills the two condition columns only for fields the
+// header table actually has (step3and5...R:405-431):
+//
+//	categorical.header <- intersect(names(header), substr(w, 5, nchar(w)))
+//
+// For any other field both columns keep their zero default, so the
+// comparison is 0 == 0 and the expression is TRUE for every plot. The
+// 2025-10-03 file's "$$C Dataset EQ Swedish National Forest Inventory" hits
+// exactly this, and the fixture run confirms upstream evaluates it TRUE.
 func (e Env) compareCategorical(x rulepack.Expr, p Plot) Tri {
 	field := x.Left.Atoms[0].Name
 	have, ok := p.Header[field]
-	if !ok || have == "" {
+	if !ok {
+		return True
+	}
+	if have == "" {
 		return False
 	}
 	return FromBool(have == x.Right.Literal)
@@ -87,13 +109,11 @@ func (e Env) compareCategorical(x rulepack.Expr, p Plot) Tri {
 // compareWithinSet handles expressions with no right-hand side: the measure
 // of the named group must exceed that of every other group in the same +NN
 // comparison set (or, for an atom with no qualifier, every other group at
-// all — the qualifier is what defines "the same set").
+// all — the qualifier is what defines "the same set"). This is upstream's
+// "GR NON <self>" completion. The "#NN Group" form never reaches here: it is
+// excluded from that completion and marked AlwaysFalse instead.
 func (e Env) compareWithinSet(x rulepack.Expr, p Plot, left float64) (Tri, float64, float64) {
 	a := x.Left.Atoms[0]
-	if isCountPrefixKind(a.Kind) {
-		// "#03 Group" is a standalone predicate: at least N species present.
-		return FromBool(left > 0), left, 0
-	}
 	best := e.bestOfComparisonSet(a.Kind, a.Qualifier, groupKey(a), p)
 	return FromBool(left > best), left, best
 }
@@ -257,7 +277,12 @@ func computeMeasure(kind string, covers []float64) float64 {
 	case kind == "##C":
 		return sum(covers)
 	case kind == "##Q":
-		return sumSqrt(covers)
+		// Upstream rounds every square-root-cover value to five decimals,
+		// both for the group itself (step3and5...R:65) and for the NON
+		// comparison set (step3and5...R:383). A "GR NON" expression compares
+		// a group against itself, so without the rounding a one-ulp
+		// difference in summation order makes the comparison succeed.
+		return cover.RoundTo(sumSqrt(covers), 5)
 	case kind == "###" || kind == "##D":
 		return float64(len(covers))
 	case kind == "#SC":

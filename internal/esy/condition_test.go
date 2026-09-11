@@ -4,6 +4,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/jobrunner/habitatus/internal/cover"
 	"github.com/jobrunner/habitatus/internal/rulepack"
 	"github.com/jobrunner/habitatus/internal/taxa"
 )
@@ -42,6 +43,82 @@ func evalRaw(t *testing.T, raw string) (Tri, float64, float64) {
 	return testEnv().EvalExpr(x, testPlot())
 }
 
+// TestEvalAlwaysFalse pins upstream's handling of expressions that never
+// become a comparison: they evaluate to a number and v1.2 replaces every
+// numeric expression result with FALSE. See rulepack.ParseExpr for the R
+// citation. "#01 Shrubs" is satisfied on the test plot -- Corylus avellana is
+// present -- and must still be FALSE.
+func TestEvalAlwaysFalse(t *testing.T) {
+	for _, raw := range []string{"#01 Shrubs", "#TC Trees GR05"} {
+		got, _, _ := evalRaw(t, raw)
+		if got != False {
+			t.Errorf("%q = %v, want FALSE", raw, got)
+		}
+	}
+}
+
+// TestEvalSCExceptSelf checks the step 3B rewrite end to end: Fagus sylvatica
+// at 10% is not greater than the Trees maximum of 10% including itself, but is
+// greater than the 9% maximum of the other trees.
+func TestEvalSCExceptSelf(t *testing.T) {
+	got, left, right := evalRaw(t, "Fagus sylvatica GR #SC Trees")
+	if left != 10 || right != 9 {
+		t.Errorf("left, right = %v, %v; want 10, 9", left, right)
+	}
+	if got != True {
+		t.Errorf("got %v, want TRUE", got)
+	}
+}
+
+// TestEvalSumSqrtIsRounded pins the rounding upstream applies to every
+// square-root-cover value, both for the group itself
+// (step3and5...R:65, round(x$x, 5)) and for the NON comparison set
+// (step3and5...R:383, round(result[,j], 5)). Without it, a group compared
+// against itself through "GR NON" can differ from itself by one ulp and the
+// comparison wrongly succeeds.
+func TestEvalSumSqrtIsRounded(t *testing.T) {
+	env := Env{Groups: map[string][]string{"G": {"A", "B", "C"}}}
+	// sqrt(2)+sqrt(3)+sqrt(5) = 5.382332347441762; to 5 decimals: 5.38233.
+	plot := Plot{Records: []taxa.Record{
+		{Name: "A", Cover: 2}, {Name: "B", Cover: 3}, {Name: "C", Cover: 5},
+	}}
+	x, err := rulepack.ParseExpr("##Q G GR 0")
+	if err != nil {
+		t.Fatalf("ParseExpr: %v", err)
+	}
+	_, left, _ := env.EvalExpr(x, plot)
+	if left != 5.38233 {
+		t.Errorf("left = %v, want exactly 5.38233", left)
+	}
+}
+
+// TestEvalCategoricalUnknownField pins a quirk of upstream's condition
+// matrix. A "$$C <field> EQ <value>" expression becomes a comparison of two
+// matrix columns, and both are only ever filled for fields that exist in the
+// header table (step3and5...R:407, intersect(names(header), ...)). For a
+// field the header does not carry, both columns stay at their zero default
+// and the comparison is TRUE for every plot. The 2025-10-03 rule file uses
+// "$$C Dataset", which the bundled Tuexen-Archiv header does not have, and
+// the fixture run confirms logi1 is TRUE there for every plot.
+//
+// An empty value is different: the column exists, "" is one of its factor
+// levels, and the comparison is FALSE.
+func TestEvalCategoricalUnknownField(t *testing.T) {
+	got, _, _ := evalRaw(t, "$$C Dataset EQ Swedish National Forest Inventory")
+	if got != True {
+		t.Errorf("unknown header field = %v, want TRUE (upstream compares 0 with 0)", got)
+	}
+	x, err := rulepack.ParseExpr("$$C Coast_EEA EQ ATL_COAST")
+	if err != nil {
+		t.Fatalf("ParseExpr: %v", err)
+	}
+	p := testPlot()
+	p.Header["Coast_EEA"] = ""
+	if got, _, _ := testEnv().EvalExpr(x, p); got != False {
+		t.Errorf("empty header value = %v, want FALSE", got)
+	}
+}
+
 func TestEvalTotalCoverOfGroup(t *testing.T) {
 	// 10, 9, 8 -> 24.652 by Jennings-Fischer, NOT 27 by addition.
 	got, left, _ := evalRaw(t, "#TC Trees GR 25")
@@ -59,12 +136,19 @@ func TestEvalSpeciesCount(t *testing.T) {
 	}
 }
 
+// TestEvalAtLeastNSpecies pins the "#NN Group" minimum-species-count form.
+// Its condition VALUE is 1 when at least N members are present and 0
+// otherwise (step3and5...R:45-49), but upstream never turns that value into a
+// comparison: every occurrence in the rule file stands alone, so the
+// expression stays numeric and step 8 forces it to FALSE. Both halves are
+// asserted here, because the value is what the golden master compares and the
+// truth value is what the rules see.
 func TestEvalAtLeastNSpecies(t *testing.T) {
-	if got, _, _ := evalRaw(t, "#03 Trees"); got != True {
-		t.Errorf("#03 Trees = %v, want TRUE (3 species present)", got)
+	if got, left, _ := evalRaw(t, "#03 Trees"); got != False || left != 1 {
+		t.Errorf("#03 Trees = %v (value %v), want FALSE with value 1", got, left)
 	}
-	if got, _, _ := evalRaw(t, "#04 Trees"); got != False {
-		t.Errorf("#04 Trees = %v, want FALSE", got)
+	if got, left, _ := evalRaw(t, "#04 Trees"); got != False || left != 0 {
+		t.Errorf("#04 Trees = %v (value %v), want FALSE with value 0", got, left)
 	}
 }
 
@@ -75,7 +159,8 @@ func TestEvalSumOfCovers(t *testing.T) {
 }
 
 func TestEvalSumOfSquareRoots(t *testing.T) {
-	want := math.Sqrt(10) + math.Sqrt(9) + math.Sqrt(8)
+	// Upstream rounds the sum to five decimals; see TestEvalSumSqrtIsRounded.
+	want := cover.RoundTo(math.Sqrt(10)+math.Sqrt(9)+math.Sqrt(8), 5)
 	if _, left, _ := evalRaw(t, "##Q Trees GR 0"); math.Abs(left-want) > 1e-9 {
 		t.Errorf("##Q = %v, want %v", left, want)
 	}

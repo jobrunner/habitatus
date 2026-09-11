@@ -55,6 +55,25 @@ func TestParseGroupsIgnoresWhitespaceLines(t *testing.T) {
 	}
 }
 
+// Upstream strips only LEADING whitespace from member lines
+// (ParsingExpertFile.R:37-38 uses trim.leading, not trim), so a member
+// written with trailing blanks keeps them and then fails to match the taxon
+// name in a plot. 27 members of the 2025-10-03 file are affected, among them
+// "Ranunculus peltatus " in Fresh-water-submerged-macrophytes. Trimming here
+// would silently repair the rule file and diverge from upstream.
+func TestParseGroupsKeepsTrailingBlanks(t *testing.T) {
+	lines := []string{
+		"### Fresh-water-submerged-macrophytes",
+		"     Potamogeton pusillus",
+		"     Ranunculus peltatus ",
+	}
+	got := ParseGroups(lines)["Fresh-water-submerged-macrophytes"]
+	want := []string{"Potamogeton pusillus", "Ranunculus peltatus "}
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
 // Section 2 also uses "##D +NN <name>" as a group header, alongside "### ".
 // The key is everything from character 5 onward (line[4:]), trimmed, which
 // unifies both header forms: upstream computes group names as

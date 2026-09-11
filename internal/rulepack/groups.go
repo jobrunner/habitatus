@@ -14,6 +14,15 @@ import "strings"
 // stays part of the key, because later rule references look groups up by
 // "Qualifier Name".
 //
+// Member lines keep their trailing whitespace. Upstream applies only
+// trim.leading to them (ParsingExpertFile.R:37-38), so a member written with
+// trailing blanks never matches the taxon name in a plot; trimming here would
+// repair the rule file instead of porting it. 27 members of the 2025-10-03
+// file are affected. Upstream trims member names in exactly one place — the
+// "#TC <group>|<group> EXCEPT <x>" branch of step3and5...R:184-189 — but no
+// group reachable from that branch has such a member, so the inconsistency
+// has no effect on this file.
+//
 // The final member of the final group must survive — upstream lost exactly
 // that entry until commit fb86835.
 func ParseGroups(lines []string) map[string][]string {
@@ -34,7 +43,7 @@ func ParseGroups(lines []string) map[string][]string {
 		if name == "" || strings.TrimSpace(line) == "" {
 			continue
 		}
-		out[name] = append(out[name], strings.TrimSpace(line))
+		out[name] = append(out[name], strings.TrimLeft(line, " \t"))
 	}
 	return out
 }
