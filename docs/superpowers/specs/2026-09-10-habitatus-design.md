@@ -113,7 +113,7 @@ Alle Felder sind Pflicht, `Dataset` ausgenommen.
 | `DEG_LAT` | Zahl | WGS 84, Dezimalgrad | 84 |
 | `Coast_EEA` | Text | `ARC_COAST`, `ATL_COAST`, `BAL_COAST`, `BLA_COAST`, `MED_COAST`, `N_COAST` | 76 |
 | `DEG_LON` | Zahl | WGS 84, Dezimalgrad, West negativ | 53 |
-| `Country` | Text | ESy-Länderliste (Namen, nicht TDWG-Codes) | 41 |
+| `Country` | Text | englischer Ländername aus der ESy-Liste, siehe §3.1 | 41 |
 | `Ecoreg` | Ganzzahl | `ECO_ID` aus Ecoregions 2017 | 37 |
 | `Altitude (m)` | Zahl | Meter über NN | 24 |
 | `Dunes_Bohn` | Text | `Y_DUNES`, `N_DUNES` | 11 |
@@ -123,10 +123,52 @@ Alle Felder sind Pflicht, `Dataset` ausgenommen.
 des Regelwerks) hängen an Ecoregion, Koordinate oder Höhe. Deshalb sind Koordinate
 und Höhe Pflicht und nicht optional.
 
-`Country` erwartet ausgeschriebene Ländernamen. Die Abbildung von TDWG-Level-3-Codes
-auf diese Namen ist verlustbehaftet — TDWG trennt, was ESy zusammenfasst (`COR` →
-`France`, `BAL`/`CNY` → `Spain`) — und liegt als gepflegte Tabelle im Repo, nicht
-als Ableitungsregel.
+### 3.1 `Country`
+
+Erwartet wird der **englische Ländername in genau der Schreibweise, die ESy
+verwendet** — kein ISO-Code, kein landessprachlicher Name, keine aktuelle
+amtliche Bezeichnung. `Germany`, nicht `Deutschland`, nicht `DE`. Die
+Vergleichsoperation im Regelwerk ist ein exakter Zeichenkettenvergleich
+(`<$$C Country EQ Germany>`); jede Abweichung führt dazu, dass die Bedingung
+stumm nie wahr wird.
+
+Das Vokabular umfasst **52 Namen**, festgelegt im User-Guide (Appendix S5 zu
+Chytrý et al. 2020). Mehrere davon sind historische oder Langformen:
+
+| ESy verlangt | nicht |
+|---|---|
+| `Czech Republic` | Czechia |
+| `Slovak Republic` | Slovakia |
+| `Russian Federation` | Russia |
+| `Turkey` | Türkiye |
+| `Bosnia-Herzegovina` | Bosnia and Herzegovina |
+| `Svalbard and Jan Mayen Is` | Svalbard and Jan Mayen Islands |
+
+Die vollständige Zuordnung **ISO 3166-1 alpha-2 → ESy-Name** liegt als
+`data/esy-country-names.csv` im Repo (52 Zeilen, gegen den User-Guide geprüft).
+ISO ist der empfohlene Übergabeweg für Clients, weil er sprachunabhängig und
+stabil ist; ein landessprachlicher Name ist es nicht.
+
+Von den 52 Namen werden **22 tatsächlich von Regeln geprüft**. Die übrigen sind
+gültige Eingaben ohne Wirkung auf das Ergebnis. Die Validierung akzeptiert
+deshalb alle 52 — ein Plot in Schweden ist kein Fehler, nur weil keine Regel nach
+Schweden fragt.
+
+**Bekannter Defekt: `Britain` neben `United Kingdom`.** Das Regelwerk 2025
+verwendet beide Werte, nie in derselben Formel: `United Kingdom` in 11 Q-, R- und
+T-Regeln, `Britain` in 9 U-Regeln (Schutthalden und Felsen). `Britain` steht
+nicht im User-Guide-Vokabular.
+
+Die Wirkung ist asymmetrisch. Alle `Britain`-Vorkommen stehen in positiven
+ODER-Ketten; alle Ausschlüsse (`NOT (… OR <$$C Country EQ United Kingdom>)`)
+nutzen `United Kingdom`. Mit `United Kingdom` als Eingabe feuern die neun
+U-Regeln nicht — **fehlende** Treffer. Mit `Britain` greifen die Ausschlüsse
+nicht — **falsche** Treffer.
+
+**Entscheidung: `GB` wird auf `United Kingdom` abgebildet**, dem
+User-Guide-Vokabular folgend und weil fehlende Treffer dem stillen Falschtreffer
+vorzuziehen sind. Britische Plots erhalten damit für die neun U-Regeln kein
+Ergebnis. Der Punkt ist in der Notiz an die Autoren aufgeführt.
 
 ---
 
