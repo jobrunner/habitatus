@@ -27,8 +27,9 @@ implementiert:
 - **Ableitung der Kopfdaten aus einer Koordinate.** Ecoregion, Land,
   Küstenkategorie, Dünenlage und Höhe besorgt der Client, in unserem Umfeld über
   ortus. Habitatus bekommt fertige Werte.
-- **Auswahl des Backbones.** Der Client weiß, aus welchem Konzeptraum seine Namen
-  stammen (GermanSL, Euro+Med, WCVP …) und teilt das mit.
+- **Auswahl der Quellnomenklatur.** Der Client weiß, aus welchem Namensvorrat
+  seine Namen stammen — im Regelfall EuroSL/Euro+Med, das die gesamte
+  Westpaläarktis abdeckt — und teilt das mit.
 - **Umrechnung der Deckungsskala.** Braun-Blanquet oder andere Skalen rechnet der
   Client in Prozent um.
 
@@ -91,17 +92,86 @@ Batch-Pfad für den Golden Master ist ein Test-Harness (§6).
 
 ## 3. Eingabe
 
-### Artenliste
+### 3.1 Artenliste
 
-Je Eintrag ein Name und eine Deckung in Prozent, `0 < c ≤ 100`.
+Je Eintrag ein Name und eine Deckung in Prozent, `0 < c ≤ 100`. Was genau ein gültiger
+Name ist, steht unmittelbar darunter — es ist die schwierigste Anforderung der
+ganzen Schnittstelle.
 
-### Backbone
+#### Was ein Artname erfüllen muss
+
+**Der Abgleich ist ein exakter Zeichenkettenvergleich.** Der Upstream tut in
+`step4_aggregate-taxon-levels.R` genau dies:
+
+```r
+index1 <- match(obs$TaxonName, AGG$values)
+obs$TaxonName[!is.na(index1)] <- AGG$ind[index1[!is.na(index1)]]
+```
+
+Keine Normalisierung, keine Toleranz bei Groß-/Kleinschreibung, keine
+Fuzzy-Suche, **ein einziger Durchlauf**. Daraus folgt zweierlei, was die
+Entscheidungen in §8 von „konservativ gewählt" auf **belegt** hebt:
+
+- `match()` liefert den **ersten** Treffer → „erster Eintrag gewinnt" ist
+  Upstream-Verhalten.
+- Ein Durchlauf → **keine transitive Auflösung** von Ketten.
+
+Die „Herkunft" im Request bezeichnet deshalb die **Namens-Zeichenkettenquelle**,
+nicht ein taxonomisches Konzept im Sinne einer Umgrenzung. Sie wählt aus, welche
+Übersetzungstabelle vor Sektion 1 läuft.
+
+#### EuroSL als Regelfall
+
+EuroSL (F. Jansen, Univ. Rostock) ist eine flache Fassung der Euro+Med
+PlantBase — also des Systems, das ESy als Zielnomenklatur erwartet. EuroSL-Daten
+werden daher als `euro+med` deklariert und brauchen **keine**
+Übersetzungstabelle; Sektion 1 erledigt den Rest.
+
+Gemessen an den **8.477 Namen, die in Sektion-2-Gruppen vorkommen** — nur diese
+beeinflussen ein Ergebnis, nicht alle 20.159 Zielkonzepte:
+
+| | Anzahl | Anteil |
+|---|---|---|
+| EuroSL kennt sie als akzeptierten Namen | 7.941 | 93 % |
+| EuroSL unbekannt | 528 | 6 % |
+
+Die Lücke ist systematisch:
+
+| Art der Lücke | Anzahl | Konsequenz |
+|---|---|---|
+| Flechten, Algen, Pilze, Hybriden, makaronesische Endemiten | 293 | außerhalb des EuroSL-Umfangs; der Upstream liefert `data/Various-names-bryo-lich-algae-fungi.xlsx` dafür |
+| ESy-Aggregate (`aggr.`) | 145 | ESy führt eigene Aggregate; von 175 kennt EuroSL nur 18 |
+| `<Gattung> species` | 90 | ESy-Konvention für Gattungsfunde; EuroSL kennt keinen davon |
+
+#### Anforderungen an den Client
+
+1. Auf den **akzeptierten** EuroSL-Namen auflösen. Synonyme greifen nur, wenn
+   Sektion 1 sie führt. 7.706 akzeptierte EuroSL-Namen werden dort ohnehin weiter
+   aggregiert — das ist der Zweck von Sektion 1, kein Fehler.
+2. **EuroSL-Zähler abschneiden**: `Festuca ovina.1` → `Festuca ovina`. Ohne das
+   trifft der Name nichts.
+3. Gattungsfunde in ESy-Schreibweise: `Quercus species`, nicht `Quercus`.
+4. Aggregate in ESy-Schreibweise, nicht in der von EuroSL.
+
+#### Unauflösbare Namen sind nicht wirkungslos
+
+Ein Name, der auf kein Zielkonzept fällt, gehört zu keiner Gruppe — **zählt aber
+weiterhin in die Gesamtdeckung**. Er geht ein in `#T$` (Deckung ohne die
+verglichene Gruppe), in `#$$` (höchste Deckung irgendeiner Art) und in alle
+`NON`-Bedingungen. Ein Tippfehler verschiebt damit Nenner und kann Dominanztests
+kippen.
+
+Das ist der Grund, warum die Antwort einen Auflösungsbericht führt (§6): Ohne ihn
+bliebe unsichtbar, dass ein Name stillschweigend durchgefallen ist, obwohl er das
+Ergebnis beeinflusst hat.
+
+### 3.2 Quellnomenklatur (Backbone)
 
 Pflichtangabe. Zulässig sind `euro+med` (Identität, keine Tabelle nötig) und die
 Kennungen der 48 mitgelieferten Übersetzungstabellen. Ein weiterer Backbone ist
 eine Datei im selben Format, kein Code.
 
-### 3.2 Verfügbare Backbones
+#### Verfügbare Tabellen
 
 Die 48 Tabellen stammen aus dem Zenodo-Record
 (`Nomenclature-translation-from-Turboveg-2-databases`) und bilden zusammen
@@ -140,7 +210,7 @@ GBIF-Backbone und World Flora Online. Für sie müsste eine Tabelle im selben
 Format erst erstellt werden — dieselbe Schwierigkeit wie zuvor, nur an anderer
 Stelle.
 
-### 3.3 Defektdichte in den Backbone-Tabellen
+#### Defektdichte in den Backbone-Tabellen
 
 Die Übersetzungstabellen sind **deutlich fehlerhafter als die Haupt-Sektion 1**.
 Gemessen an `GermanSL 1.4` (19.259 Quellnamen):
@@ -164,7 +234,7 @@ Blöcken** — anders als in der Haupt-Regelwerksdatei folgt auf die letzte
 eingerückte Zeile direkt der nächste Blockkopf. Der Parser muss Blöcke an der
 Einrückung erkennen, nicht an Trennzeilen.
 
-### Kopfdaten
+### 3.3 Kopfdaten
 
 Alle Felder sind Pflicht, `Dataset` ausgenommen.
 
@@ -173,7 +243,7 @@ Alle Felder sind Pflicht, `Dataset` ausgenommen.
 | `DEG_LAT` | Zahl | WGS 84, Dezimalgrad | 84 |
 | `Coast_EEA` | Text | `ARC_COAST`, `ATL_COAST`, `BAL_COAST`, `BLA_COAST`, `MED_COAST`, `N_COAST` | 76 |
 | `DEG_LON` | Zahl | WGS 84, Dezimalgrad, West negativ | 53 |
-| `Country` | Text | englischer Ländername aus der ESy-Liste, siehe §3.1 | 41 |
+| `Country` | Text | englischer Ländername aus der ESy-Liste, siehe unten | 41 |
 | `Ecoreg` | Ganzzahl | `ECO_ID` aus Ecoregions 2017 | 37 |
 | `Altitude (m)` | Zahl | Meter über NN | 24 |
 | `Dunes_Bohn` | Text | `Y_DUNES`, `N_DUNES` | 11 |
@@ -183,7 +253,7 @@ Alle Felder sind Pflicht, `Dataset` ausgenommen.
 des Regelwerks) hängen an Ecoregion, Koordinate oder Höhe. Deshalb sind Koordinate
 und Höhe Pflicht und nicht optional.
 
-### 3.1 `Country`
+#### `Country`
 
 Erwartet wird der **englische Ländername in genau der Schreibweise, die ESy
 verwendet** — kein ISO-Code, kein landessprachlicher Name, keine aktuelle
@@ -231,6 +301,7 @@ vorzuziehen sind. Britische Plots erhalten damit für die neun U-Regeln kein
 Ergebnis. Der Punkt ist in der Notiz an die Autoren aufgeführt.
 
 ---
+
 
 ## 4. Datenfluss
 
