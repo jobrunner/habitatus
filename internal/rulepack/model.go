@@ -17,6 +17,37 @@ type Rule struct {
 // Label returns the code plus its variant marker, e.g. "N15!!".
 func (r Rule) Label() string { return r.Code + r.Variant }
 
+// Atom is one term inside a membership expression.
+type Atom struct {
+	// Kind is the prefix: "#TC", "##Q", "##C", "###", "##D", "#SC", "#T$",
+	// "#$$", "$$C", "$$N", "NON", "#01".."#12", or "" for a bare taxon name.
+	Kind string
+	// Qualifier is the comparison set marker, e.g. "+04". Empty if absent.
+	Qualifier string
+	// Name is the group, header field or taxon name. Empty for "#$$"/"#T$"
+	// when they stand alone on the right-hand side.
+	Name string
+	// Inner is the measure a NON atom negates, e.g. "##Q" in "NON ##Q +10 Grp".
+	// Empty for every other kind.
+	Inner string
+}
+
+// Operand is one side of a membership expression: a union of atoms, optionally
+// minus an EXCEPT union, or a bare literal (a number, a "$NN" percentage or a
+// categorical header value).
+type Operand struct {
+	Atoms   []Atom
+	Except  []Atom
+	Literal string
+}
+
+// Expr is a membership expression, the content of one <...> pair.
+type Expr struct {
+	Left  Operand
+	Op    string // "GR", "GE", "EQ", or "" when there is no right-hand side
+	Right Operand
+}
+
 // Issues counts and names the defects found in a rule file.
 type Issues struct {
 	// DuplicateSources are source names listed under more than one target.

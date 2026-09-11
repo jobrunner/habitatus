@@ -135,3 +135,49 @@ func TestRulesRealFile(t *testing.T) {
 		t.Errorf("variants: plain=%d bang=%d bangbang=%d, want 273/34/5", plain, bang, bangbang)
 	}
 }
+
+func TestParseEveryRealExpression(t *testing.T) {
+	p := os.Getenv("ESY_FILE")
+	if p == "" {
+		t.Skip("ESY_FILE not set")
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	secs, err := SplitSections(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules, err := ParseRuleHeaders(secs[3])
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	kinds := map[string]int{}
+	for _, r := range rules {
+		for _, raw := range extractExpressions(r.Raw) {
+			if seen[raw] {
+				continue
+			}
+			seen[raw] = true
+			e, err := ParseExpr(raw)
+			if err != nil {
+				t.Errorf("rule %s: ParseExpr(%q): %v", r.Label(), raw, err)
+				continue
+			}
+			for _, a := range append(append([]Atom{}, e.Left.Atoms...), e.Right.Atoms...) {
+				kinds[a.Kind]++
+			}
+		}
+	}
+	if len(seen) != 931 {
+		t.Errorf("got %d distinct expressions, want 931", len(seen))
+	}
+	for _, k := range []string{"#TC", "##Q", "$$N", "$$C", "#SC", "#T$", "#$$", "#01"} {
+		if kinds[k] == 0 {
+			t.Errorf("no atom of kind %s was parsed", k)
+		}
+	}
+}
