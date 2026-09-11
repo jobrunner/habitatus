@@ -1,7 +1,6 @@
 package classify
 
 import (
-	"fmt"
 	"sort"
 	"sync"
 
@@ -154,11 +153,11 @@ func reach(n rulepack.Node) (reachTrue, reachFalse bool) {
 // Classify validates, resolves and evaluates one plot.
 func (s *Service) Classify(req Request) (Response, error) {
 	if len(req.Records) == 0 {
-		return Response{}, fmt.Errorf("at least one taxon record is required")
+		return Response{}, invalidf("at least one taxon record is required")
 	}
 	for _, r := range req.Records {
 		if r.Cover <= 0 || r.Cover > 100 {
-			return Response{}, fmt.Errorf("cover for %q is %v, must be in (0, 100]", r.Name, r.Cover)
+			return Response{}, invalidf("cover for %q is %v, must be in (0, 100]", r.Name, r.Cover)
 		}
 	}
 	if err := ValidateHeader(req.Header); err != nil {
@@ -168,7 +167,7 @@ func (s *Service) Classify(req Request) (Response, error) {
 	if req.Backbone != "euro+med" {
 		t, ok := s.backbones[req.Backbone]
 		if !ok {
-			return Response{}, fmt.Errorf("unknown backbone %q", req.Backbone)
+			return Response{}, invalidf("unknown backbone %q", req.Backbone)
 		}
 		table = t
 	}

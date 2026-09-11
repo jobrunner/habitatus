@@ -89,10 +89,7 @@ func NewServer(s *classify.Service) http.Handler {
 			Header:   req.Header,
 		})
 		if err != nil {
-			// Everything Classify rejects — a misspelled header value, an
-			// out-of-range cover, an unknown backbone, an empty species
-			// list — is the caller's fault, not the server's.
-			writeError(w, http.StatusBadRequest, err.Error())
+			writeError(w, statusFor(err), err.Error())
 			return
 		}
 
@@ -123,6 +120,19 @@ func NewServer(s *classify.Service) http.Handler {
 	})
 
 	return mux
+}
+
+// statusFor classifies an error from the application layer. Everything
+// Classify rejects about the request — a misspelled header value, an
+// out-of-range cover, an unknown backbone, an empty species list — is the
+// caller's fault and answers 400. Anything else is ours and must answer 500:
+// reporting an internal failure as a 400 tells the caller to fix a request
+// that was never wrong, and hides the failure from every 5xx alarm.
+func statusFor(err error) int {
+	if errors.Is(err, classify.ErrInvalidRequest) {
+		return http.StatusBadRequest
+	}
+	return http.StatusInternalServerError
 }
 
 func writeJSON(w http.ResponseWriter, code int, body any) {

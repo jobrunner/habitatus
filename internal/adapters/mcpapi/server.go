@@ -8,6 +8,7 @@ package mcpapi
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"io"
 	"strings"
 
@@ -47,7 +48,21 @@ const (
 	codeInvalidRequest = -32600
 	codeMethodNotFound = -32601
 	codeInvalidParams  = -32602
+	codeInternalError  = -32603
 )
+
+// rpcCodeFor classifies an error from the application layer. A validation
+// error — a misspelled header value, an out-of-range cover, an unknown
+// backbone, an empty species list — is an answer to the caller and reports as
+// invalid params. Anything else is our failure and must report as an internal
+// error, or the first internal error ever added to Classify would tell the
+// client to fix a request that was never wrong.
+func rpcCodeFor(err error) int {
+	if errors.Is(err, classify.ErrInvalidRequest) {
+		return codeInvalidParams
+	}
+	return codeInternalError
+}
 
 // recordJSON is the wire shape of one taxon observation. It is a transport
 // DTO deliberately kept separate from taxa.Record, following the same
@@ -185,9 +200,9 @@ var nullID = json.RawMessage("null")
 // successful or not.
 //
 // Neither an unparseable line nor a Classify error (a bad header, an
-// unknown backbone, an invalid cover — a caller mistake, not a server
-// fault) stops the loop; both come back as ordinary JSON-RPC error
-// responses (except when the erroring request was itself a notification).
+// unknown backbone, an invalid cover) stops the loop; both come back as
+// ordinary JSON-RPC error responses (except when the erroring request was
+// itself a notification), with the code rpcCodeFor picks.
 func (s *Server) Serve(in io.Reader, out io.Writer) error {
 	sc := bufio.NewScanner(in)
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
@@ -274,10 +289,7 @@ func (s *Server) callTool(params json.RawMessage) (any, *rpcError) {
 		Header:   p.Arguments.Header,
 	})
 	if err != nil {
-		// A validation error from Classify — a misspelled header value, an
-		// out-of-range cover, an unknown backbone, an empty species list —
-		// is an answer to the caller, not a broken request.
-		return nil, &rpcError{Code: codeInvalidParams, Message: err.Error()}
+		return nil, &rpcError{Code: rpcCodeFor(err), Message: err.Error()}
 	}
 
 	result := classifyResultJSON{Result: out.Result, Versions: out.Versions, TruncatedAt10: out.TruncatedAt10}
