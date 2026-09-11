@@ -209,6 +209,16 @@ func TestMetricsEndpoint(t *testing.T) {
 	if got.Unreachable == nil {
 		t.Errorf("unreachable_rules must be present, even if empty, got nil")
 	}
+	// tinyPack has exactly one rule, T1H, and the classify call above made
+	// it fire, so NeverFired must be an empty slice, not nil — and must
+	// therefore serialise as "[]", not "null". A strict client should not
+	// have to treat the two cases differently.
+	if got.NeverFired == nil {
+		t.Errorf("never_fired_rules must be present, even if empty, got nil")
+	}
+	if strings.Contains(rec.Body.String(), `"never_fired_rules":null`) {
+		t.Errorf("never_fired_rules must serialise as [], not null, when every reachable rule has fired: %s", rec.Body)
+	}
 }
 
 func TestMetricsEndpointRejectsPost(t *testing.T) {

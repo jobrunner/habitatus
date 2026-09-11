@@ -227,7 +227,7 @@ func (s *Service) Stats() Stats {
 	}
 	sort.Strings(unreachable)
 
-	var neverFired []string
+	neverFired := make([]string, 0, len(s.allLabels))
 	for _, label := range s.allLabels {
 		if s.unreachable[label] || s.fired[label] {
 			continue

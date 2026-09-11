@@ -82,11 +82,27 @@ func run(log *slog.Logger, addr, rulesPath, backbonesPath string, mcp bool) erro
 
 	var backbones map[string]map[string]string
 	if backbonesPath != "" {
-		backbones, err = rulepack.LoadBackbones(backbonesPath)
+		var backboneIssues map[string]rulepack.Issues
+		backbones, backboneIssues, err = rulepack.LoadBackbones(backbonesPath)
 		if err != nil {
 			return errors.New("cannot load backbone tables: " + err.Error())
 		}
-		log.Info("backbone tables loaded", "path", backbonesPath, "tables", len(backbones))
+		// These translation tables are more defective than the main rule
+		// file, not less: GermanSL 1.4 alone carries 26 duplicate source
+		// names and 51 chains. Sum the counters across all tables so an
+		// operator sees the same class of defect Load already logs for
+		// the main pack, without a line per table.
+		var duplicateSources, chains int
+		for _, iss := range backboneIssues {
+			duplicateSources += len(iss.DuplicateSources)
+			chains += len(iss.Chains)
+		}
+		log.Info("backbone tables loaded",
+			"path", backbonesPath,
+			"tables", len(backbones),
+			"duplicate_sources", duplicateSources,
+			"chains", chains,
+		)
 	}
 
 	versions := map[string]string{

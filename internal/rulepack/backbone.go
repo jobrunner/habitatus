@@ -16,33 +16,43 @@ const backboneSuffix = "_ExpertSystem.txt"
 // The id is the file stem in kebab-case: "GermanSL 1.4_ExpertSystem.txt"
 // becomes "germansl-1.4". Two files deriving the same id is an error, not a
 // silent overwrite.
-func LoadBackbones(dir string) (map[string]map[string]string, error) {
+//
+// The second return value carries each table's parse Issues (duplicate
+// source names, chains — UnknownGroups is always empty here, since a
+// backbone file has no rules to reference a group). These tables are not
+// merely as defective as the main rule pack; measured against the real
+// files, GermanSL 1.4 alone carries 26 duplicate source names and 51
+// chains. Load keeps and logs this class of defect for the main rule pack,
+// so LoadBackbones does the same instead of discarding it.
+func LoadBackbones(dir string) (map[string]map[string]string, map[string]Issues, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	out := map[string]map[string]string{}
+	issues := map[string]Issues{}
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), backboneSuffix) {
 			continue
 		}
 		id := backboneID(strings.TrimSuffix(e.Name(), backboneSuffix))
 		if _, dup := out[id]; dup {
-			return nil, fmt.Errorf("backbone id %q is claimed by two files", id)
+			return nil, nil, fmt.Errorf("backbone id %q is claimed by two files", id)
 		}
 		f, err := os.Open(filepath.Join(dir, e.Name()))
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		secs, err := SplitSections(f)
 		_ = f.Close()
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", e.Name(), err)
+			return nil, nil, fmt.Errorf("%s: %w", e.Name(), err)
 		}
-		tbl, _ := ParseAggregation(secs[1])
+		tbl, iss := ParseAggregation(secs[1])
 		out[id] = tbl
+		issues[id] = iss
 	}
-	return out, nil
+	return out, issues, nil
 }
 
 func backboneID(stem string) string {
