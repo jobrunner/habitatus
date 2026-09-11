@@ -3,11 +3,18 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/jobrunner/habitatus/internal/classify"
 	"github.com/jobrunner/habitatus/internal/taxa"
 )
+
+// maxRequestBytes caps the size of a classify request body. A real
+// vegetation plot has a few hundred taxa at most; this limit is generous by
+// several orders of magnitude while still ruling out an unbounded body being
+// buffered and decoded, which would otherwise let any caller exhaust memory.
+const maxRequestBytes = 2 << 20 // 2 MiB
 
 type classifyRequest struct {
 	Backbone string            `json:"backbone"`
@@ -47,15 +54,26 @@ func NewServer(s *classify.Service) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/classify", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed, use POST")
 			return
 		}
+
+		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)
 
 		var req classifyRequest
 		dec := json.NewDecoder(r.Body)
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) {
+				writeError(w, http.StatusBadRequest, "request body too large, must not exceed 2 MiB")
+				return
+			}
+			// The decoder's own error names internal Go types
+			// (httpapi.recordJSON, json field names) that a caller cannot
+			// act on, so it is not passed through.
+			writeError(w, http.StatusBadRequest, "invalid JSON body")
 			return
 		}
 
@@ -94,6 +112,7 @@ func NewServer(s *classify.Service) http.Handler {
 
 	mux.HandleFunc("/health/ready", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed, use GET")
 			return
 		}

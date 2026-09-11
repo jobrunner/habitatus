@@ -87,6 +87,27 @@ func TestClassifyEndpointRejectsGet(t *testing.T) {
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("status = %d, want 405", rec.Code)
 	}
+	if got := rec.Header().Get("Allow"); got != http.MethodPost {
+		t.Errorf("Allow header = %q, want %q", got, http.MethodPost)
+	}
+}
+
+func TestClassifyEndpointRejectsOversizedBody(t *testing.T) {
+	huge := `{"backbone": "euro+med", "records": [{"name": "` +
+		strings.Repeat("x", 3<<20) + `", "cover": 30}], "header": {}}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/classify", strings.NewReader(huge))
+	testServer(t).ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+	var got map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("error body must be JSON: %v (%s)", err, rec.Body)
+	}
+	if !strings.Contains(got["error"], "too large") {
+		t.Errorf("error = %q, want a message mentioning the body is too large", got["error"])
+	}
 }
 
 func TestClassifyEndpointRejectsMalformedJSON(t *testing.T) {
@@ -95,6 +116,13 @@ func TestClassifyEndpointRejectsMalformedJSON(t *testing.T) {
 	testServer(t).ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", rec.Code)
+	}
+	var got map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("error body must be JSON: %v (%s)", err, rec.Body)
+	}
+	if strings.Contains(got["error"], "httpapi.") || strings.Contains(got["error"], "recordJSON") {
+		t.Errorf("error message leaks internal Go type names: %q", got["error"])
 	}
 }
 
@@ -145,5 +173,8 @@ func TestReadyEndpointRejectsPost(t *testing.T) {
 	testServer(t).ServeHTTP(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("status = %d, want 405", rec.Code)
+	}
+	if got := rec.Header().Get("Allow"); got != http.MethodGet {
+		t.Errorf("Allow header = %q, want %q", got, http.MethodGet)
 	}
 }
