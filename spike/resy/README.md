@@ -57,11 +57,20 @@ bundled with upstream. 422 plots sit at coordinates (0, 0) — no coordinates,
 which would place them in the Atlantic off West Africa — and are dropped,
 leaving 10,295.
 
-### The one normalisation: header column names
+### Header column names are normalised
 
-`generate-fixtures.R` feeds upstream the bundled data verbatim with a single
-exception, and anyone re-running this after an upstream bump needs to know
-about it.
+`generate-fixtures.R` feeds upstream the bundled data verbatim except for two
+header column names, and anyone re-running this after an upstream bump needs
+to know about it. Both are in one explicit mapping:
+
+```r
+header.renames <- c(dataset = "Dataset", "Altitude..m." = "Altitude (m)")
+```
+
+An explicit list, not a blanket case-fold, so the next maintainer can see
+exactly what was touched and extend it if another column drifts.
+`synthesize.go`'s `headerFields` carries the same names, because `rbind`
+demands identical columns.
 
 Upstream binds a header column to a rule's `$$C`/`$$N` field **by name**, and
 the test is case-sensitive (`step3and5…R:407` and `:395`):
@@ -70,24 +79,19 @@ the test is case-sensitive (`step3and5…R:407` and `:395`):
 categorical.header <- intersect(names(header), substr(w, 5, nchar(w)))
 ```
 
+#### `dataset` → `Dataset`
+
 The bundled CSV spells its dataset column `dataset`; the rule file asks for
 `$$C Dataset`. The `intersect` misses, both condition columns keep their zero
 default, and `<$$C Dataset EQ Swedish National Forest Inventory>` is `0 == 0`
 — TRUE for every plot. That is not a semantic of the expert system to
 reproduce: it is a column name that does not match the field the rules
 reference. A caller supplying a properly named header — as habitatus
-requires — gets FALSE out of R too. So the generator renames it:
+requires — gets FALSE out of R too. So the generator renames it.
 
-```r
-header.renames <- c(dataset = "Dataset")
-```
-
-An explicit mapping, not a blanket case-fold, so the next maintainer can see
-exactly what was touched and extend it if another column drifts. Verified safe
-for this data: `dataset` holds one distinct value, `Germany Vegetweb 2`, which
-is not itself a condition string, so filling the column cannot collide with
-another field's levels. `synthesize.go`'s `headerFields` carries the same
-normalised name, because `rbind` demands identical columns.
+Verified safe for this data: `dataset` holds one distinct value,
+`Germany Vegetweb 2`, which is not itself a condition string, so filling the
+column cannot collide with another field's levels.
 
 Blast radius, measured rather than assumed: exactly one expression in the rule
 file names `$$C Dataset`, and the only rule using it is `U21`, one of the 100
@@ -96,21 +100,43 @@ TRUE to FALSE on every plot and moved nothing else — `expected.jsonl` came
 out byte-identical. `TestGoldenExpressions` is back to requiring **zero**
 disagreements, with no exception mechanism.
 
-### What is deliberately NOT normalised
+#### `Altitude..m.` → `Altitude (m)`
 
-`read.csv` also mangles `Altitude (m)` into `Altitude..m.`, so the ten
-`$$N Altitude (m)` expressions, spread across 24 rules, evaluate against 0 for
-every plot — even though all 10,717 plots carry a real altitude.
+`read.csv` also mangles `Altitude (m)` into `Altitude..m.`, and that one is
+renamed for a different reason than `dataset`.
 
-This is left alone, for a different reason than the `Dataset` case. An
-unmatched **numeric** field is 0 on both sides, so R and habitatus agree and
-there is no divergence to remove; the only thing repairing it would buy is
-coverage. And it would not be free: it would change the values feeding 24
-rules on every plot, i.e. move the golden baseline. That deserves a decision
-of its own rather than arriving as a side effect, so it is recorded here and
-in `task-11-report.md` and not acted on.
+It never caused a *disagreement*: an unmatched **numeric** field is 0 in R and
+0 in habitatus, so both sides always answered the same. But that is agreement
+on a degenerate case. With the column invisible to both, the 39
+`$$N Altitude` conditions across 24 rules were never exercised at all — the
+golden master was confirming that two implementations do nothing with a field
+neither can see. Restoring the name turns those altitude gates from untested
+into tested, on plots carrying real altitudes (the archive runs 0.1 m to
+1900 m).
 
-Renaming it is a one-line addition to `header.renames` when someone wants it.
+Measured effect of adding it to `header.renames`:
+
+* **Still zero mismatches** — winner, match set and expressions all agree, so
+  the altitude path was already correct on both sides. No bugs surfaced.
+* Rule coverage rose from **195 to 204** rules firing. Nine rules moved out of
+  "reachable but never triggered": `T1C`, `T1C!`, `T1C!!`, `T1D!`, `T1D!!`,
+  `T31`, `T34`, `T34!`, `T37`, `S26`.
+* The condition column went from all-zero to a real range, and five of the ten
+  altitude expressions now take **both** truth values across the sampled
+  plots instead of being pinned to one.
+* 24 of 11,337 plots (0.212%) changed winner, every one of them from a broad
+  parent type to a specific subtype — `T` → `T3M`/`T1C`/`T1D!`/`T31`/`T34`/
+  `T37`, `Sa` → `S26` — which is what an altitude gate opening looks like.
+* The unambiguous-assignment rate on the archive did **not** move: 89.42%
+  before and after. Those plots were already assigned, just less
+  specifically. So altitude is not the source of the gap to the published
+  94% (see `task-11-report.md`, concern 1).
+
+Residual: the thresholds above 900 m are thinly covered. Only 10 archive plots
+exceed 900 m and 1 exceeds 1500 m, and the 300-plot stride behind
+`TestGoldenExpressions` happens to miss them, so four altitude expressions show
+a single truth value in that sample. `TestGoldenMaster` runs over all 11,337
+plots and does exercise them.
 
 ## Output
 

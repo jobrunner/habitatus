@@ -61,14 +61,14 @@ header <- read.csv(file.path("data", "header_100716Hoppe2005.csv"))
 # distinct value, "Germany Vegetweb 2", which is not itself a condition
 # string, so filling the column cannot collide with another field's levels.
 #
-# NOT renamed: read.csv also mangles "Altitude (m)" into "Altitude..m.", so
-# the ten "$$N Altitude (m)" expressions across 24 rules evaluate against 0.
-# Unlike the categorical case that costs nothing in fidelity -- an unmatched
-# numeric field is 0 on both sides, so R and habitatus agree -- and repairing
-# it would move the values feeding those 24 rules on all 10,717 plots. That is
-# a deliberate change to the baseline, not a side effect of this one, and is
-# left for a decision of its own. See spike/resy/README.md.
-header.renames <- c(dataset = "Dataset")
+# read.csv also mangles "Altitude (m)" into "Altitude..m.", and that one is
+# renamed for a different reason. It causes no DISAGREEMENT -- an unmatched
+# numeric field is 0 in R and 0 in habitatus -- but that is agreement on a
+# degenerate case: the 39 "$$N Altitude" conditions across 24 rules are never
+# exercised at all, because neither side can see the column. Restoring the
+# name turns the altitude gates of those rules from untested into tested, on
+# plots that carry real altitudes. It does move the baseline, deliberately.
+header.renames <- c(dataset = "Dataset", "Altitude..m." = "Altitude (m)")
 for (from in names(header.renames)) {
   i <- match(from, names(header))
   if (!is.na(i)) {

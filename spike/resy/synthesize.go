@@ -41,15 +41,12 @@ const firstSyntheticID = 1000000
 const maxAssignments = 4
 
 // headerFields are the columns of the bundled header table, in its order,
-// after generate-fixtures.R normalises "dataset" to "Dataset". A synthetic
-// plot must carry exactly these, because upstream binds header rows to
-// plot.cond rows positionally and rbind demands identical columns.
-//
-// "Altitude..m." keeps read.csv's mangled spelling, because the generator
-// deliberately does not repair that one; see the rename block in
-// generate-fixtures.R.
+// after generate-fixtures.R normalises the two column names read.csv mangles
+// or the source spells differently ("dataset" and "Altitude..m."). A
+// synthetic plot must carry exactly these, because upstream binds header rows
+// to plot.cond rows positionally and rbind demands identical columns.
 var headerFields = []string{
-	"Country", "Altitude..m.", "DEG_LON", "DEG_LAT", "GESELLSCH",
+	"Country", "Altitude (m)", "DEG_LON", "DEG_LAT", "GESELLSCH",
 	"Dataset", "Ecoreg", "Dunes_Bohn", "Coast_EEA",
 }
 
@@ -259,7 +256,7 @@ func newBuilder(groups map[string][]string) *builder {
 	for _, f := range headerFields {
 		h[f] = ""
 	}
-	h["Altitude..m."] = "0"
+	h["Altitude (m)"] = "0"
 	h["DEG_LON"] = "0"
 	h["DEG_LAT"] = "0"
 	h["Ecoreg"] = "0"
