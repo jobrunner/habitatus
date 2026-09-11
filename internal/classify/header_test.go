@@ -2,6 +2,7 @@ package classify
 
 import (
 	"os"
+	"sort"
 	"testing"
 )
 
@@ -135,5 +136,59 @@ func TestParseCountriesRejectsDuplicateName(t *testing.T) {
 	_, err := parseCountries("iso_alpha2,esy_country,note\nDE,Germany,\nAT,Germany,\n")
 	if err == nil {
 		t.Error("a duplicate country name must be rejected")
+	}
+}
+
+func TestCountryNamesIsSortedAndMatchesValidateHeader(t *testing.T) {
+	names := CountryNames()
+	if len(names) == 0 {
+		t.Fatal("CountryNames must not be empty")
+	}
+	if !sort.StringsAreSorted(names) {
+		t.Error("CountryNames must be sorted")
+	}
+	for _, n := range names {
+		h := validHeader()
+		h["Country"] = n
+		if err := ValidateHeader(h); err != nil {
+			t.Errorf("CountryNames returned %q, but ValidateHeader rejects it: %v", n, err)
+		}
+	}
+}
+
+func TestCountryNamesReturnsACopy(t *testing.T) {
+	names := CountryNames()
+	names[0] = "mutated"
+	again := CountryNames()
+	if again[0] == "mutated" {
+		t.Error("CountryNames must return a fresh copy, not a view onto shared state")
+	}
+}
+
+func TestCoastValuesMatchesValidateHeader(t *testing.T) {
+	values := CoastValues()
+	if len(values) != 6 {
+		t.Fatalf("want 6 Coast_EEA values, got %d: %v", len(values), values)
+	}
+	for _, v := range values {
+		h := validHeader()
+		h["Coast_EEA"] = v
+		if err := ValidateHeader(h); err != nil {
+			t.Errorf("CoastValues returned %q, but ValidateHeader rejects it: %v", v, err)
+		}
+	}
+}
+
+func TestDuneValuesMatchesValidateHeader(t *testing.T) {
+	values := DuneValues()
+	if len(values) != 2 {
+		t.Fatalf("want 2 Dunes_Bohn values, got %d: %v", len(values), values)
+	}
+	for _, v := range values {
+		h := validHeader()
+		h["Dunes_Bohn"] = v
+		if err := ValidateHeader(h); err != nil {
+			t.Errorf("DuneValues returned %q, but ValidateHeader rejects it: %v", v, err)
+		}
 	}
 }

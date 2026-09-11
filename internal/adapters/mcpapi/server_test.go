@@ -194,3 +194,94 @@ func TestInitializeRespondsWithServerInfo(t *testing.T) {
 		t.Errorf("initialize must report server info: %s", out.String())
 	}
 }
+
+func TestUnparseableLineCarriesNullID(t *testing.T) {
+	var out bytes.Buffer
+	in := strings.NewReader("not json at all\n")
+	if err := testServer(t).Serve(in, &out); err != nil {
+		t.Fatal(err)
+	}
+	resps := decodeResponses(t, &out)
+	if len(resps) != 1 {
+		t.Fatalf("want 1 response, got %d: %s", len(resps), out.String())
+	}
+	idVal, ok := resps[0]["id"]
+	if !ok {
+		t.Errorf("a parse-error response must carry an \"id\" member (null), got %v", resps[0])
+	}
+	if idVal != nil {
+		t.Errorf("a parse-error response's id must be null, got %v", idVal)
+	}
+}
+
+// A JSON-RPC request with no "id" member is a notification and must get no
+// response at all, per spec — not even an error.
+func TestNotificationGetsNoResponse(t *testing.T) {
+	var out bytes.Buffer
+	in := strings.NewReader(`{"jsonrpc":"2.0","method":"tools/list"}` + "\n")
+	if err := testServer(t).Serve(in, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("a notification must produce no output, got %s", out.String())
+	}
+}
+
+// A notification must not stop the loop: the request after it is still
+// served normally.
+func TestNotificationDoesNotStopTheLoop(t *testing.T) {
+	notification := `{"jsonrpc":"2.0","method":"tools/list"}`
+	ordinary := `{"jsonrpc":"2.0","id":7,"method":"tools/list"}`
+	in := strings.NewReader(notification + "\n" + ordinary + "\n")
+	var out bytes.Buffer
+	if err := testServer(t).Serve(in, &out); err != nil {
+		t.Fatal(err)
+	}
+	resps := decodeResponses(t, &out)
+	if len(resps) != 1 {
+		t.Fatalf("want exactly 1 response (the notification produces none), got %d: %s", len(resps), out.String())
+	}
+	if resps[0]["result"] == nil {
+		t.Errorf("the ordinary request after a notification must still be served, got %v", resps[0])
+	}
+}
+
+// A notification with an unrecognised method also gets no response — the
+// no-response rule for notifications holds regardless of outcome.
+func TestUnknownMethodNotificationGetsNoResponse(t *testing.T) {
+	var out bytes.Buffer
+	in := strings.NewReader(`{"jsonrpc":"2.0","method":"notifications/initialized"}` + "\n")
+	if err := testServer(t).Serve(in, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("an unrecognised notification must still produce no output, got %s", out.String())
+	}
+}
+
+func TestToolsCallUnknownToolReturnsInvalidParams(t *testing.T) {
+	call := map[string]any{
+		"jsonrpc": "2.0", "id": 8, "method": "tools/call",
+		"params": map[string]any{
+			"name":      "not-classify",
+			"arguments": map[string]any{},
+		},
+	}
+	body, _ := json.Marshal(call)
+	var out bytes.Buffer
+	if err := testServer(t).Serve(bytes.NewReader(append(body, '\n')), &out); err != nil {
+		t.Fatal(err)
+	}
+	resps := decodeResponses(t, &out)
+	if len(resps) != 1 {
+		t.Fatalf("want 1 response, got %d", len(resps))
+	}
+	errObj, ok := resps[0]["error"].(map[string]any)
+	if !ok {
+		t.Fatalf("unknown tool must produce a JSON-RPC error object, got %v", resps[0])
+	}
+	code, _ := errObj["code"].(float64)
+	if code != -32602 {
+		t.Errorf("unknown tool error code = %v, want -32602 (invalid params)", errObj["code"])
+	}
+}

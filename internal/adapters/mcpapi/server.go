@@ -7,48 +7,13 @@ package mcpapi
 
 import (
 	"bufio"
-	_ "embed"
-	"encoding/csv"
 	"encoding/json"
 	"io"
-	"sort"
 	"strings"
 
 	"github.com/jobrunner/habitatus/internal/classify"
 	"github.com/jobrunner/habitatus/internal/taxa"
 )
-
-// esy-country-names.csv is a copy of the repository's data/esy-country-names.csv
-// — go:embed cannot reach outside this package directory. This mirrors the
-// same copy already kept by internal/classify, for the same reason. Keep all
-// three files in step: data/esy-country-names.csv is the source of truth.
-//
-//go:embed esy-country-names.csv
-var countryCSV string
-
-// countryNames lists the ESy country vocabulary for the tool schema, sorted
-// for a stable, readable schema.
-var countryNames = mustLoadCountryNames(countryCSV)
-
-func mustLoadCountryNames(csvText string) []string {
-	r := csv.NewReader(strings.NewReader(csvText))
-	rows, err := r.ReadAll()
-	if err != nil {
-		panic("esy-country-names.csv is malformed: " + err.Error())
-	}
-	names := make([]string, 0, len(rows))
-	for i, row := range rows {
-		if i == 0 || len(row) < 2 {
-			continue // header row
-		}
-		name := strings.TrimSpace(row[1])
-		if name != "" {
-			names = append(names, name)
-		}
-	}
-	sort.Strings(names)
-	return names
-}
 
 // Server speaks a minimal MCP subset over stdio: initialize, tools/list and
 // tools/call for the single tool "classify".
@@ -123,9 +88,12 @@ type classifyArgumentsJSON struct {
 // fields have specific vocabularies that a caller cannot guess, so every
 // enumerable one is spelled out here rather than left as a bare string —
 // Coast_EEA's six values, Dunes_Bohn's two, and the full 52-country ESy name
-// list (English names, not ISO codes or local-language names; see
-// data/esy-country-names.csv). Ecoreg and the numeric fields are described
-// precisely instead. Dataset is optional and free text.
+// list (English names, not ISO codes or local-language names). The enums
+// come from classify.CountryNames/CoastValues/DuneValues, the same
+// vocabularies ValidateHeader enforces, so this schema cannot silently
+// drift from what a call will actually accept. Ecoreg and the numeric
+// fields are described precisely instead. Dataset is optional and free
+// text.
 var classifyTool = map[string]any{
 	"name": "classify",
 	"description": "Assign EUNIS habitats to a vegetation plot from its species list, " +
@@ -165,15 +133,15 @@ var classifyTool = map[string]any{
 					"Country": map[string]any{
 						"type":        "string",
 						"description": "Exact English ESy country name (not an ISO code, not a local-language name).",
-						"enum":        countryNames,
+						"enum":        classify.CountryNames(),
 					},
 					"Coast_EEA": map[string]any{
 						"type": "string",
-						"enum": []string{"ARC_COAST", "ATL_COAST", "BAL_COAST", "BLA_COAST", "MED_COAST", "N_COAST"},
+						"enum": classify.CoastValues(),
 					},
 					"Dunes_Bohn": map[string]any{
 						"type": "string",
-						"enum": []string{"Y_DUNES", "N_DUNES"},
+						"enum": classify.DuneValues(),
 					},
 					"Ecoreg": map[string]any{
 						"type":        "string",
@@ -204,11 +172,21 @@ var classifyTool = map[string]any{
 	},
 }
 
-// Serve reads newline-delimited JSON-RPC 2.0 requests from in and writes one
-// response line per request to out, until in is exhausted or a write fails.
-// Neither an unparseable line nor a Classify error (a bad header, an unknown
-// backbone, an invalid cover — a caller mistake, not a server fault) stops
-// the loop; both come back as ordinary JSON-RPC error responses.
+// nullID is the "id" JSON-RPC 2.0 requires on an error response when the
+// request's own id could not be determined — here, when the line did not
+// even parse as JSON.
+var nullID = json.RawMessage("null")
+
+// Serve reads newline-delimited JSON-RPC 2.0 requests from in and writes
+// one response line per request to out, until in is exhausted or a write
+// fails — with one exception mandated by the spec: a request with no "id"
+// member is a notification, and a notification gets no response at all,
+// successful or not.
+//
+// Neither an unparseable line nor a Classify error (a bad header, an
+// unknown backbone, an invalid cover — a caller mistake, not a server
+// fault) stops the loop; both come back as ordinary JSON-RPC error
+// responses (except when the erroring request was itself a notification).
 func (s *Server) Serve(in io.Reader, out io.Writer) error {
 	sc := bufio.NewScanner(in)
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
@@ -220,12 +198,23 @@ func (s *Server) Serve(in io.Reader, out io.Writer) error {
 		}
 		var req rpcRequest
 		if err := json.Unmarshal(line, &req); err != nil {
+			// The line does not parse at all, so whether it was a
+			// notification cannot be known. The spec's answer is a
+			// parse-error response carrying id: null.
 			if err := enc.Encode(rpcResponse{
 				JSONRPC: "2.0",
+				ID:      nullID,
 				Error:   &rpcError{Code: codeParseError, Message: "parse error: " + err.Error()},
 			}); err != nil {
 				return err
 			}
+			continue
+		}
+		if req.ID == nil {
+			// A request with no "id" member is a notification. Dispatch it
+			// for any side effect a recognised method might have, but never
+			// respond — not even with an error — regardless of outcome.
+			s.dispatch(req)
 			continue
 		}
 		if err := enc.Encode(s.dispatch(req)); err != nil {
@@ -270,7 +259,7 @@ func (s *Server) callTool(params json.RawMessage) (any, *rpcError) {
 		return nil, &rpcError{Code: codeInvalidParams, Message: "invalid params: " + err.Error()}
 	}
 	if p.Name != "classify" {
-		return nil, &rpcError{Code: codeMethodNotFound, Message: "unknown tool " + p.Name}
+		return nil, &rpcError{Code: codeInvalidParams, Message: "unknown tool " + p.Name}
 	}
 
 	recs := make([]taxa.Record, len(p.Arguments.Records))

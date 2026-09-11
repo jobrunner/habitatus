@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"encoding/csv"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -25,6 +26,33 @@ var (
 	duneValues = map[string]bool{"Y_DUNES": true, "N_DUNES": true}
 	countries  = mustLoadCountries(countryCSV)
 )
+
+// CountryNames returns the ESy country vocabulary — the exact English
+// names ValidateHeader accepts for the "Country" header field — sorted and
+// as a fresh copy on every call, so a caller cannot mutate this package's
+// state through it. It is the single source of truth other adapters (e.g.
+// mcpapi's tool schema) should build their own enums from, rather than
+// keeping a second copy that can drift from ValidateHeader.
+func CountryNames() []string { return sortedKeys(countries) }
+
+// CoastValues returns the six permitted "Coast_EEA" header values, sorted
+// and as a fresh copy on every call. See CountryNames for why callers
+// should use this instead of hardcoding the list.
+func CoastValues() []string { return sortedKeys(coastValues) }
+
+// DuneValues returns the two permitted "Dunes_Bohn" header values, sorted
+// and as a fresh copy on every call. See CountryNames for why callers
+// should use this instead of hardcoding the list.
+func DuneValues() []string { return sortedKeys(duneValues) }
+
+func sortedKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
 
 // mustLoadCountries wraps parseCountries for package initialisation. The
 // country table is a build-time asset with no sensible runtime recovery, so
