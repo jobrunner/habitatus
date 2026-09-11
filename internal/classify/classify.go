@@ -193,9 +193,22 @@ func (s *Service) Classify(req Request) (Response, error) {
 		Result:        res.Winner,
 		Matches:       res.Matches,
 		Resolution:    steps,
-		Versions:      s.versions,
+		Versions:      s.versionsWith(req.Backbone),
 		TruncatedAt10: truncatedAt10(res.Matches),
 	}, nil
+}
+
+// versionsWith returns the service-wide versions plus the backbone table this
+// request resolved to, which spec §6 requires the response to name. The
+// service map is shared by every response and must not be written to, so the
+// per-request entry goes into a copy.
+func (s *Service) versionsWith(backbone string) map[string]string {
+	out := make(map[string]string, len(s.versions)+1)
+	for k, v := range s.versions {
+		out[k] = v
+	}
+	out["backbone"] = backbone
+	return out
 }
 
 // record updates the operational counters and the set of rule labels seen

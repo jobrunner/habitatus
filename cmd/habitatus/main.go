@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -105,8 +106,13 @@ func run(log *slog.Logger, addr, rulesPath, backbonesPath string, mcp bool) erro
 		)
 	}
 
+	// The file name, not the path: where the rule file sits on this server is
+	// an operational detail about our filesystem, and it went out to every
+	// caller of every HTTP and MCP response. The digest is what actually
+	// identifies a rule pack, and it stays. The server log above keeps the
+	// full path for the operator.
 	versions := map[string]string{
-		"rulepack":        rulesPath,
+		"rulepack":        filepath.Base(rulesPath),
 		"rulepack_sha256": digest,
 	}
 	svc := classify.NewService(pack, backbones, versions)

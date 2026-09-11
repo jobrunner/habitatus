@@ -118,3 +118,36 @@ func TestClassifyFillsMissingDatasetAsEmptyString(t *testing.T) {
 		t.Fatalf("omitted optional Dataset must not be rejected: %v", err)
 	}
 }
+
+// Spec §6 requires the response to name the backbone table it used. Only
+// Classify knows which one the request selected, so it adds it per response —
+// without mutating the service-wide map, which every response shares.
+func TestClassifyVersionsCarryTheBackbone(t *testing.T) {
+	pack, err := rulepack.Load(strings.NewReader(tinyPack))
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := map[string]string{"rulepack": "EUNIS-ESy-2025-10-03.txt"}
+	tables := map[string]map[string]string{"germansl": {"Buche": "Fagus sylvatica"}}
+	s := NewService(pack, tables, base)
+
+	for _, backbone := range []string{"euro+med", "germansl"} {
+		got, err := s.Classify(Request{
+			Records:  []taxa.Record{{Name: "Fagus sylvatica", Cover: 30}},
+			Backbone: backbone,
+			Header:   validHeader(),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Versions["backbone"] != backbone {
+			t.Errorf("backbone %q: versions[backbone] = %q", backbone, got.Versions["backbone"])
+		}
+		if got.Versions["rulepack"] != base["rulepack"] {
+			t.Errorf("backbone %q: rulepack version lost: %q", backbone, got.Versions["rulepack"])
+		}
+	}
+	if _, leaked := base["backbone"]; leaked {
+		t.Errorf("the service-wide versions map was mutated: %v", base)
+	}
+}
