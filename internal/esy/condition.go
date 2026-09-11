@@ -123,6 +123,11 @@ var KnownHeaderFields = map[string]bool{
 //     branch is unreachable with this rule file — every "$$C" name in it is
 //     one of the eight — but it is what R does, and a later rule file may
 //     name a field the schema does not know.
+//
+// The first two branches are verified against upstream, not merely asserted:
+// the golden master normalises the bundled header's "dataset" column to the
+// "Dataset" the rules name (see spike/resy/README.md), so R and habitatus
+// answer that expression identically on all 11,337 plots.
 func (e Env) compareCategorical(x rulepack.Expr, p Plot) Tri {
 	field := x.Left.Atoms[0].Name
 	if !KnownHeaderFields[field] {

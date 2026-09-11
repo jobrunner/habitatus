@@ -249,7 +249,7 @@ func TestGoldenExpressions(t *testing.T) {
 	cases := map[int]goldenCase{}
 	scanJSONL(t, "cases.jsonl", func(c goldenCase) { cases[c.ID] = c })
 
-	var plots, compared, bad, allowed int
+	var plots, compared, bad int
 	scanJSONL(t, "intermediates.jsonl", func(im intermediate) {
 		c, ok := cases[im.ID]
 		if !ok {
@@ -270,66 +270,20 @@ func TestGoldenExpressions(t *testing.T) {
 			for i, lf := range leaves {
 				got, left, right := env.EvalExpr(lf.Expr, p)
 				compared++
-				if got.IsTrue() == rTrue[idx[i]] {
-					continue
-				}
-				if schemaFieldNotSupplied(lf.Expr, c.Header) {
-					allowed++
-					continue
-				}
-				bad++
-				if bad <= 20 {
-					t.Errorf("plot %d rule %s expression %d %q: %v (%g, %g), R says %v",
-						im.ID, rule.Label(), i, lf.Raw, got, left, right, rTrue[idx[i]])
+				if got.IsTrue() != rTrue[idx[i]] {
+					bad++
+					if bad <= 20 {
+						t.Errorf("plot %d rule %s expression %d %q: %v (%g, %g), R says %v",
+							im.ID, rule.Label(), i, lf.Raw, got, left, right, rTrue[idx[i]])
+					}
 				}
 			}
 		}
 	})
-	t.Logf("%d plots, %d expression evaluations compared, %d differ, %d are the documented schema exception",
-		plots, compared, bad, allowed)
+	t.Logf("%d plots, %d expression evaluations compared, %d differ", plots, compared, bad)
 	if bad > 0 {
 		t.Errorf("%d of %d expression evaluations differ from upstream", bad, compared)
 	}
-	// The exception must actually occur. If it stops occurring -- because the
-	// fixture header gained the field, or the rule file stopped naming it --
-	// the allowance is dead and must be removed rather than left to hide a
-	// future divergence.
-	if allowed == 0 {
-		t.Error("the schema exception never fired; schemaFieldNotSupplied is now dead and should be removed")
-	}
-}
-
-// schemaFieldNotSupplied reports whether a disagreement on this expression is
-// the one divergence from upstream that habitatus makes deliberately.
-//
-// R decides the "$$C" quirk on its header TABLE: a field the table has no
-// column for leaves both condition columns at zero, so the comparison is
-// 0 == 0 and TRUE for every plot. habitatus decides it on the header SCHEMA
-// instead (esy.KnownHeaderFields), because a service takes one plot at a time
-// and a caller who merely omits a field must not thereby satisfy a rule. See
-// esy.compareCategorical.
-//
-// The two rules disagree exactly when the rule file names a schema field that
-// the input does not supply under that name. The bundled archive does that
-// twice over: its header spells "$$C Dataset" as "dataset" and
-// "$$N Altitude (m)" as "Altitude..m.", both artefacts of read.csv. So R
-// answers TRUE and habitatus answers FALSE for
-// "<$$C Dataset EQ Swedish National Forest Inventory>" on every plot.
-//
-// It cannot change a classification with this rule file: the only rule using
-// it, U21, is one of the 100 that can never fire (see
-// TestGoldenRuleCoverage), and TestGoldenMaster confirms the winner and the
-// match set are identical on all 11,337 plots.
-func schemaFieldNotSupplied(x rulepack.Expr, header map[string]string) bool {
-	if len(x.Left.Atoms) != 1 || x.Left.Atoms[0].Kind != "$$C" {
-		return false
-	}
-	field := x.Left.Atoms[0].Name
-	if !esy.KnownHeaderFields[field] {
-		return false
-	}
-	_, supplied := header[field]
-	return !supplied
 }
 
 // leavesOf returns a formula's membership expressions in file order.

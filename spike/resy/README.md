@@ -57,29 +57,60 @@ bundled with upstream. 422 plots sit at coordinates (0, 0) — no coordinates,
 which would place them in the Atlantic off West Africa — and are dropped,
 leaving 10,295.
 
-The header columns come from `read.csv`, which turns `Altitude (m)` into
-`Altitude..m.`. The rule file asks for `$$N Altitude (m)` and `$$C Dataset`,
-and neither matches a column, so upstream leaves both at zero for every plot.
-The fixtures carry the header keys verbatim, so habitatus sees exactly what R
-saw. Renaming them would exercise those conditions but would also change the
-archive baseline, so the schema is left as upstream's own data has it.
+### The one normalisation: header column names
 
-For `$$N` that is the same answer on both sides: an unmatched field is zero
-either way. For `$$C` it is not, and it is the one place habitatus departs
-from upstream on purpose. R decides the quirk on its header **table** — a
-field with no column leaves both condition columns at zero, so `0 == 0` is
-TRUE for every plot — whereas habitatus decides it on the header **schema**
-(`esy.KnownHeaderFields`), because a service takes one plot at a time and a
-caller who merely omits the optional `Dataset` field must not thereby satisfy
-`<$$C Dataset EQ Swedish National Forest Inventory>` and fire a rule that
-should not fire. So R answers TRUE there and habitatus answers FALSE.
+`generate-fixtures.R` feeds upstream the bundled data verbatim with a single
+exception, and anyone re-running this after an upstream bump needs to know
+about it.
 
-It cannot change a classification with this rule file: the only rule using
-that expression, `U21`, is one of the 100 that can never fire, and
-`TestGoldenMaster` confirms the winner and the match set are identical on all
-11,337 plots. `TestGoldenExpressions` allows exactly this one disagreement,
-recognises it from its shape rather than from a hard-coded string, reports how
-often it fired, and fails if it ever stops firing.
+Upstream binds a header column to a rule's `$$C`/`$$N` field **by name**, and
+the test is case-sensitive (`step3and5…R:407` and `:395`):
+
+```r
+categorical.header <- intersect(names(header), substr(w, 5, nchar(w)))
+```
+
+The bundled CSV spells its dataset column `dataset`; the rule file asks for
+`$$C Dataset`. The `intersect` misses, both condition columns keep their zero
+default, and `<$$C Dataset EQ Swedish National Forest Inventory>` is `0 == 0`
+— TRUE for every plot. That is not a semantic of the expert system to
+reproduce: it is a column name that does not match the field the rules
+reference. A caller supplying a properly named header — as habitatus
+requires — gets FALSE out of R too. So the generator renames it:
+
+```r
+header.renames <- c(dataset = "Dataset")
+```
+
+An explicit mapping, not a blanket case-fold, so the next maintainer can see
+exactly what was touched and extend it if another column drifts. Verified safe
+for this data: `dataset` holds one distinct value, `Germany Vegetweb 2`, which
+is not itself a condition string, so filling the column cannot collide with
+another field's levels. `synthesize.go`'s `headerFields` carries the same
+normalised name, because `rbind` demands identical columns.
+
+Blast radius, measured rather than assumed: exactly one expression in the rule
+file names `$$C Dataset`, and the only rule using it is `U21`, one of the 100
+that can never fire. Re-running the generator flipped that one expression from
+TRUE to FALSE on every plot and moved nothing else — `expected.jsonl` came
+out byte-identical. `TestGoldenExpressions` is back to requiring **zero**
+disagreements, with no exception mechanism.
+
+### What is deliberately NOT normalised
+
+`read.csv` also mangles `Altitude (m)` into `Altitude..m.`, so the ten
+`$$N Altitude (m)` expressions, spread across 24 rules, evaluate against 0 for
+every plot — even though all 10,717 plots carry a real altitude.
+
+This is left alone, for a different reason than the `Dataset` case. An
+unmatched **numeric** field is 0 on both sides, so R and habitatus agree and
+there is no divergence to remove; the only thing repairing it would buy is
+coverage. And it would not be free: it would change the values feeding 24
+rules on every plot, i.e. move the golden baseline. That deserves a decision
+of its own rather than arriving as a side effect, so it is recorded here and
+in `task-11-report.md` and not acted on.
+
+Renaming it is a one-line addition to `header.renames` when someone wants it.
 
 ## Output
 

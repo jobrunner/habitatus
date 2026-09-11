@@ -40,12 +40,17 @@ const firstSyntheticID = 1000000
 // maxAssignments caps how many truth assignments of one formula are tried.
 const maxAssignments = 4
 
-// headerFields are the columns of the bundled header table, in its order. A
-// synthetic plot must carry exactly these, because upstream binds header rows
-// to plot.cond rows positionally and rbind demands identical columns.
+// headerFields are the columns of the bundled header table, in its order,
+// after generate-fixtures.R normalises "dataset" to "Dataset". A synthetic
+// plot must carry exactly these, because upstream binds header rows to
+// plot.cond rows positionally and rbind demands identical columns.
+//
+// "Altitude..m." keeps read.csv's mangled spelling, because the generator
+// deliberately does not repair that one; see the rename block in
+// generate-fixtures.R.
 var headerFields = []string{
 	"Country", "Altitude..m.", "DEG_LON", "DEG_LAT", "GESELLSCH",
-	"dataset", "Ecoreg", "Dunes_Bohn", "Coast_EEA",
+	"Dataset", "Ecoreg", "Dunes_Bohn", "Coast_EEA",
 }
 
 type plot struct {

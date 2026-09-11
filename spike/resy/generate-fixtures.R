@@ -41,6 +41,43 @@ suppressPackageStartupMessages(library(jsonlite))
 obs <- fread(file.path("data", "obs_100716Hoppe2005.csv"), encoding = "UTF-8")
 header <- read.csv(file.path("data", "header_100716Hoppe2005.csv"))
 
+# The one place this generator does not feed the bundled data verbatim.
+#
+# Upstream binds a header column to a rule's "$$C"/"$$N" field by name, and
+# the test is case-sensitive (step3and5...R:407,395):
+#
+#	categorical.header <- intersect(names(header), substr(w, 5, nchar(w)))
+#
+# The bundled CSV spells its dataset column "dataset" while the rule file asks
+# for "$$C Dataset", so the intersect misses, both condition columns keep
+# their zero default, and "<$$C Dataset EQ ...>" is 0 == 0 -- TRUE for every
+# plot. That is not a semantic of the expert system to reproduce; it is a
+# column name that does not match the field the rules reference, and any
+# caller supplying a properly named header gets FALSE out of R too.
+#
+# Renamed explicitly rather than by a blanket case-fold, so the next
+# maintainer can see exactly what was touched and extend the list if another
+# column ever drifts. Verified safe for this data: "dataset" holds one
+# distinct value, "Germany Vegetweb 2", which is not itself a condition
+# string, so filling the column cannot collide with another field's levels.
+#
+# NOT renamed: read.csv also mangles "Altitude (m)" into "Altitude..m.", so
+# the ten "$$N Altitude (m)" expressions across 24 rules evaluate against 0.
+# Unlike the categorical case that costs nothing in fidelity -- an unmatched
+# numeric field is 0 on both sides, so R and habitatus agree -- and repairing
+# it would move the values feeding those 24 rules on all 10,717 plots. That is
+# a deliberate change to the baseline, not a side effect of this one, and is
+# left for a decision of its own. See spike/resy/README.md.
+header.renames <- c(dataset = "Dataset")
+for (from in names(header.renames)) {
+  i <- match(from, names(header))
+  if (!is.na(i)) {
+    names(header)[i] <- header.renames[[from]]
+    message("renamed header column '", from, "' to '", header.renames[[from]],
+            "' to match the rule file's field name")
+  }
+}
+
 # 422 plots carry no coordinates; (0,0) would put them in the Atlantic off
 # West Africa, where the coastal and biogeographic rules behave differently.
 keep <- !(header$DEG_LON == 0 & header$DEG_LAT == 0)
