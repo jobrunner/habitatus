@@ -18,8 +18,10 @@ import "math"
 //
 // Cover is projected area, not amount, so adding values would double-count
 // the overlap and can exceed 100%. Upstream rounds to 10 decimals (commit
-// 416bab9) to keep threshold comparisons stable, and this reproduces that
-// exactly.
+// 416bab9) to keep threshold comparisons stable, and this rounds the same way
+// — with one difference: R's round() breaks a tie to the even digit, while
+// math.Round in RoundTo breaks it away from zero. At the tenth decimal of a
+// cover percentage, no comparison in the rule file can see it.
 func Union(covers []float64) float64 {
 	if len(covers) == 0 {
 		return 0

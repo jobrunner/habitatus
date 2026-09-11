@@ -37,6 +37,13 @@ func ParseExpr(s string) (Expr, error) {
 		return Expr{}, fmt.Errorf("left of %q: %w", s, err)
 	}
 	if op != "" {
+		// An operator with nothing to its right used to yield a zero-valued
+		// operand, which compares as an empty literal and quietly evaluates
+		// FALSE. There is no such expression in the rule file, and there is
+		// no reading of one that we could defend.
+		if strings.TrimSpace(right) == "" {
+			return Expr{}, fmt.Errorf("%q: operator %s has no right-hand side", s, op)
+		}
 		if e.Right, err = parseOperand(right, true); err != nil {
 			return Expr{}, fmt.Errorf("right of %q: %w", s, err)
 		}
@@ -150,6 +157,13 @@ func parseOperand(s string, onRight bool) (Operand, error) {
 	main, except := s, ""
 	if i := strings.Index(s, "EXCEPT"); i >= 0 {
 		main, except = strings.TrimSpace(s[:i]), strings.TrimSpace(s[i+len("EXCEPT"):])
+		// Only one EXCEPT per operand is representable. A second one used to
+		// be absorbed into the exception's atom name, so the operand kept
+		// evaluating — against a group whose name silently included the word
+		// EXCEPT and everything after it. None occurs in the rule file.
+		if strings.Contains(except, "EXCEPT") {
+			return Operand{}, fmt.Errorf("%q: a second EXCEPT is not representable", s)
+		}
 	}
 	if onRight && !looksLikeAtom(main) && except == "" {
 		return Operand{Literal: main}, nil
@@ -204,10 +218,22 @@ func parseAtom(s string) (Atom, error) {
 		a.Kind, s = s[:3], strings.TrimSpace(s[3:])
 	default:
 		for _, p := range atomPrefixes {
-			if strings.HasPrefix(s, p) {
-				a.Kind, s = p, strings.TrimSpace(s[len(p):])
-				break
+			if !strings.HasPrefix(s, p) {
+				continue
 			}
+			// Every prefix but NON is punctuation and cannot begin a name.
+			// NON is three letters, so it needs a word boundary: without one,
+			// "NONEA PULLA" reads as NON + "EA PULLA". Upstream has no
+			// boundary check either (startsWith/grep, step3and5…R:289, 328),
+			// so both readings are defensible and neither is safe to pick
+			// silently. No name in the 2025-10-03 file begins with those
+			// three capitals; if one ever does, this stops the load and a
+			// human decides.
+			if p == "NON" && len(s) > len(p) && s[len(p)] != ' ' {
+				return Atom{}, fmt.Errorf("%q: NON without a following space is ambiguous", s)
+			}
+			a.Kind, s = p, strings.TrimSpace(s[len(p):])
+			break
 		}
 	}
 	if a.Kind == "NON" {

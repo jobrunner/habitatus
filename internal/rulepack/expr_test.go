@@ -228,3 +228,52 @@ func operandEqual(a, b Operand) bool {
 	}
 	return true
 }
+
+// The parser's risk model is that a silent misparse is worse than a crash:
+// the rule file is the specification, and a shape we do not understand must
+// stop the load rather than evaluate into a plausible wrong answer. These
+// three shapes do not occur in the 2025-10-03 file, and each of them used to
+// parse into something quietly different from what it says.
+func TestParseExprRejectsShapesItCannotRepresent(t *testing.T) {
+	cases := []struct {
+		in, why string
+	}{
+		{
+			"#TC Trees EXCEPT Fagus sylvatica EXCEPT Picea abies",
+			"only the first EXCEPT was honoured; the second was absorbed into the atom name",
+		},
+		{"#TC Trees GR ", "an operator with no right-hand side yielded an empty operand"},
+		{"#TC Trees GR", "same, with no trailing space"},
+	}
+	for _, c := range cases {
+		if _, err := ParseExpr(c.in); err == nil {
+			t.Errorf("ParseExpr(%q) must fail: %s", c.in, c.why)
+		}
+	}
+}
+
+// Nonea is a real Euro+Med genus, and upstream matches the NON prefix with
+// startsWith/grep as well (step3and5…R:289, 328) — neither side checks for a
+// word boundary. No name in today's file begins with the three capitals, so
+// nothing misparses; a name that did would be read as NON plus the rest,
+// silently and with a truth value of its own. Refuse to guess instead.
+func TestParseExprNONNeedsABoundary(t *testing.T) {
+	if _, err := ParseExpr("#TC Trees GR NONEA PULLA"); err == nil {
+		t.Error("NONEA PULLA must not be read as NON + EA PULLA without a word boundary")
+	}
+
+	// The genus as actually spelled is unaffected: the prefix match is
+	// case-sensitive, so "Nonea pulla" never looked like a NON atom.
+	if _, err := ParseExpr("#TC Trees GR Nonea pulla"); err != nil {
+		t.Errorf("Nonea pulla: %v", err)
+	}
+
+	// The real NON prefix, with its space, must keep working.
+	got, err := ParseExpr("##Q +10 D-Mires GR NON ##Q +10 D-Mires")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a := got.Right.Atoms[0]; a.Kind != "NON" {
+		t.Errorf("NON atom lost: %+v", a)
+	}
+}

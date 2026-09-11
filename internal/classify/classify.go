@@ -180,8 +180,9 @@ func (s *Service) Classify(req Request) (Response, error) {
 	// value (both FALSE), but only an explicit total mapping here removes
 	// any chance of a later refactor turning "omitted" into the
 	// unknown-field TRUE branch.
-	header := make(map[string]string, len(esy.KnownHeaderFields))
-	for field := range esy.KnownHeaderFields {
+	fields := esy.HeaderFields()
+	header := make(map[string]string, len(fields))
+	for _, field := range fields {
 		header[field] = req.Header[field]
 	}
 

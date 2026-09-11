@@ -22,7 +22,9 @@ func (r Rule) Label() string { return r.Code + r.Variant }
 // Atom is one term inside a membership expression.
 type Atom struct {
 	// Kind is the prefix: "#TC", "##Q", "##C", "###", "##D", "#SC", "#T$",
-	// "#$$", "$$C", "$$N", "NON", "#01".."#12", or "" for a bare taxon name.
+	// "#$$", "$$C", "$$N", "NON", a "#NN" species count, or "" for a bare
+	// taxon name. isCountPrefix accepts "#00".."#99"; the 2025-10-03 file
+	// uses "#01".."#05".
 	Kind string
 	// Qualifier is the comparison set marker, e.g. "+04". Empty if absent.
 	Qualifier string

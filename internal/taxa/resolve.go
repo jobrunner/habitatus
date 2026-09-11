@@ -27,6 +27,14 @@ type Step struct {
 // "Populus x canadensis + P. nigra" is listed under the grass "Polypogon
 // monspeliensis x viridis"; Polypogon and Populus are adjacent in an
 // alphabetically sorted list, so the record sits one block too early.
+//
+// This is the one deliberate deviation from upstream behaviour in the whole
+// port: R applies the rule file as written and maps that name to the grass.
+// A plot containing it would therefore differ from the golden master — no
+// plot among the 11,337 does, which is why the fixtures stay at zero. Every
+// other quirk of the original is reproduced rather than repaired; this one
+// was decided in spec §8 and must not be extended to further "obvious" fixes
+// without the same explicit decision.
 var corrections = map[string]string{
 	"Populus x canadensis + P. nigra": "Populus x canadensis",
 }

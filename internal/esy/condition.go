@@ -2,6 +2,7 @@ package esy
 
 import (
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -79,12 +80,17 @@ func isCategorical(o rulepack.Operand) bool {
 	return len(o.Atoms) == 1 && o.Atoms[0].Kind == "$$C"
 }
 
-// KnownHeaderFields is the header schema the ESy rule language addresses:
+// knownHeaderFields is the header schema the ESy rule language addresses:
 // every "$$C" and "$$N" field name that occurs in the 2025-10-03 rule file.
 // It describes the schema, not one plot's data — a plot may leave any of
 // these unset, and that is a missing VALUE, not an unknown field.
 // compareCategorical explains why the distinction decides a comparison.
-var KnownHeaderFields = map[string]bool{
+//
+// It is unexported because it decides a truth value: a field the map does not
+// know makes its expression TRUE for every plot. An exported map is writable
+// by any importer, and one added key would silently change what a rule
+// answers. Callers get HeaderFields instead.
+var knownHeaderFields = map[string]bool{
 	"Country":      true,
 	"Coast_EEA":    true,
 	"Dunes_Bohn":   true,
@@ -93,6 +99,17 @@ var KnownHeaderFields = map[string]bool{
 	"Altitude (m)": true,
 	"DEG_LAT":      true,
 	"DEG_LON":      true,
+}
+
+// HeaderFields returns the header schema as a sorted copy — see
+// knownHeaderFields.
+func HeaderFields() []string {
+	out := make([]string, 0, len(knownHeaderFields))
+	for f := range knownHeaderFields {
+		out = append(out, f)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // compareCategorical compares a categorical header field. R turns the header
@@ -130,7 +147,7 @@ var KnownHeaderFields = map[string]bool{
 // answer that expression identically on all 11,337 plots.
 func (e Env) compareCategorical(x rulepack.Expr, p Plot) Tri {
 	field := x.Left.Atoms[0].Name
-	if !KnownHeaderFields[field] {
+	if !knownHeaderFields[field] {
 		return True
 	}
 	have, ok := p.Header[field]

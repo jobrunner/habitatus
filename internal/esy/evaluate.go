@@ -59,6 +59,17 @@ func (e Env) node(n rulepack.Node, p Plot, cond map[string][2]float64) Tri {
 //	length 0 -> "?"; length 1 -> that one; otherwise walk priority levels from
 //	highest down and return the first level holding exactly one match; "+" if
 //	no level does.
+//
+// It returns the bare Code, dropping the variant marker ("N15!!" -> "N15"),
+// because that is what upstream's vegtype.formula.names.short holds: the
+// marker distinguishes rule definitions, not habitat types, and two variants
+// of the same type are the same answer.
+//
+// Upstream walks the priority levels in the order of a FACTOR's levels, i.e.
+// by string comparison (prep.R:71); we sort integers. The two orders agree
+// while priorities stay single-digit — 1 to 8 in the 2025-10-03 file — and
+// would part company from priority 10 on. The string ordering is therefore
+// not reproduced, only matched in today's value range.
 func winner(ms []Match) string {
 	switch len(ms) {
 	case 0:
