@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/jobrunner/habitatus/internal/adapters/httpapi"
+	"github.com/jobrunner/habitatus/internal/adapters/mcpapi"
 	"github.com/jobrunner/habitatus/internal/classify"
 	"github.com/jobrunner/habitatus/internal/rulepack"
 )
@@ -23,22 +24,27 @@ import (
 func main() {
 	addr := flag.String("addr", ":8080", "listen address")
 	rulesPath := flag.String("rules", "", "path to the ESy rule file")
+	mcp := flag.Bool("mcp", false, "serve MCP over stdio instead of HTTP")
 	flag.Parse()
 
-	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	// Logging always goes to stderr, never stdout. In -mcp mode stdout is
+	// the JSON-RPC transport; even one stray log line on stdout before the
+	// first protocol message would corrupt the stream for the client
+	// reading it.
+	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 
 	if *rulesPath == "" {
 		log.Error("missing -rules")
 		os.Exit(2)
 	}
 
-	if err := run(log, *addr, *rulesPath); err != nil {
+	if err := run(log, *addr, *rulesPath, *mcp); err != nil {
 		log.Error("habitatus exited with an error", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(log *slog.Logger, addr, rulesPath string) error {
+func run(log *slog.Logger, addr, rulesPath string, mcp bool) error {
 	f, err := os.Open(rulesPath)
 	if err != nil {
 		return errors.New("cannot open rule file: " + err.Error())
@@ -78,6 +84,13 @@ func run(log *slog.Logger, addr, rulesPath string) error {
 		"rulepack_sha256": digest,
 	}
 	svc := classify.NewService(pack, nil, versions)
+
+	if mcp {
+		if err := mcpapi.NewServer(svc).Serve(os.Stdin, os.Stdout); err != nil {
+			return errors.New("mcp server stopped: " + err.Error())
+		}
+		return nil
+	}
 
 	server := &http.Server{
 		Addr:              addr,
