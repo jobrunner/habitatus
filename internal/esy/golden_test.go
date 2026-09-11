@@ -79,11 +79,7 @@ func requireFreshFixtures(t *testing.T, esyFile string) {
 	t.Helper()
 	const regen = "the fixtures are stale; regenerate them with `make fixtures`"
 
-	var meta struct {
-		UpstreamCommit string `json:"upstream_commit"`
-		ESYFile        string `json:"esy_file"`
-	}
-	readJSON(t, "meta.json", &meta)
+	meta := fixtureMeta(t)
 
 	if want, got := fixtureLine(t, "rulepack.sha256"), fileSHA256(t, esyFile); want != got {
 		t.Fatalf("%s\nESY_FILE %s\n  has SHA-256 %s\n  fixtures were built from %s (%s)",
@@ -92,6 +88,20 @@ func requireFreshFixtures(t *testing.T, esyFile string) {
 	if want, got := fixtureLine(t, "upstream.commit"), meta.UpstreamCommit; want != got {
 		t.Fatalf("%s\nupstream.commit is %s but meta.json records %s", regen, want, got)
 	}
+}
+
+// goldenMeta is the fixture manifest written by `make fixtures`.
+type goldenMeta struct {
+	NPlots         int    `json:"n_plots"`
+	UpstreamCommit string `json:"upstream_commit"`
+	ESYFile        string `json:"esy_file"`
+}
+
+func fixtureMeta(t *testing.T) goldenMeta {
+	t.Helper()
+	var m goldenMeta
+	readJSON(t, "meta.json", &m)
+	return m
 }
 
 // fixtureLine reads a fixture file holding a single value.
@@ -209,6 +219,18 @@ func TestGoldenMaster(t *testing.T) {
 
 	t.Logf("%d plots compared, %d winner mismatches, %d match-set mismatches",
 		total, winnerBad, matchBad)
+
+	// A comparison that silently ran over a fraction of the fixture set proves
+	// nothing: a truncated or half-written cases.jsonl passes green without
+	// this, because the loop simply sees fewer plots. The fixture set is the
+	// evidence behind the port's central claim, so assert its size against two
+	// independent records — the expectation file and the manifest.
+	meta := fixtureMeta(t)
+	if total != len(expected) || total != meta.NPlots {
+		t.Fatalf("compared %d plots, but expected.jsonl holds %d and meta.json records %d; "+
+			"the fixture set is incomplete — regenerate it with `make fixtures`",
+			total, len(expected), meta.NPlots)
+	}
 	if winnerBad > 0 || matchBad > 0 {
 		t.Errorf("golden master: %d of %d plots differ in the winner, %d in the match set",
 			winnerBad, total, matchBad)
