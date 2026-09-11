@@ -31,7 +31,7 @@ func ParseAggregation(lines []string) (map[string]string, Issues) {
 			if target == "" {
 				continue // member without a header — ignore
 			}
-			src := trimEntry(line)
+			src := trimEntry(line, false)
 			if src == "" || src == target {
 				continue
 			}
@@ -45,7 +45,7 @@ func ParseAggregation(lines []string) (map[string]string, Issues) {
 			out[src] = target
 			continue
 		}
-		target = trimEntry(line)
+		target = trimEntry(line, true)
 		targets[target] = true
 	}
 
@@ -63,10 +63,11 @@ func isIndented(line string) bool {
 	return len(line) > 0 && (line[0] == ' ' || line[0] == '\t')
 }
 
-// trimEntry strips the trailing layer number and the header's "-" marker.
-// "Abies alba          -  0" -> "Abies alba"
-// "     Abies pectinata   0" -> "Abies pectinata"
-func trimEntry(line string) string {
+// trimEntry strips the trailing layer number from an entry line.
+// For headers, it also strips the "-" marker.
+// "Abies alba          -  0" -> "Abies alba" (header, isHeader=true)
+// "     Abies pectinata   0" -> "Abies pectinata" (member, isHeader=false)
+func trimEntry(line string, isHeader bool) string {
 	s := strings.TrimSpace(line)
 	// drop trailing digits
 	i := len(s)
@@ -77,6 +78,8 @@ func trimEntry(line string) string {
 		return s // no trailing number
 	}
 	s = strings.TrimRight(s[:i], " \t")
-	s = strings.TrimSuffix(s, "-")
+	if isHeader {
+		s = strings.TrimSuffix(s, "-")
+	}
 	return strings.TrimRight(s, " \t")
 }

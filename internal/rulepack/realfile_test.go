@@ -31,7 +31,10 @@ func TestAggregationRealFile(t *testing.T) {
 	if p == "" {
 		t.Skip("ESY_FILE not set")
 	}
-	f, _ := os.Open(p)
+	f, err := os.Open(p)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer f.Close()
 	secs, err := SplitSections(f)
 	if err != nil {
