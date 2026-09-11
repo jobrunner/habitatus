@@ -72,3 +72,40 @@ func TestParseAggregationKeepsLastMember(t *testing.T) {
 		t.Errorf("last member of last block lost: %q", got["Salix fragilis"])
 	}
 }
+
+// trimEntry must reproduce upstream's trim.trailing literally
+// (spike/ESy-upstream/code/prep.R:53):
+//
+//	sub("\\s+$|\\s+\\d$|\\s+\\-\\s+\\d$", "", x)
+//
+// One branch per case, including the one that motivated the fix: where the
+// name is long enough that the layer digit is glued onto its last character
+// with no separating whitespace, R keeps the digit and so must we.
+func TestTrimEntryMatchesRTrimTrailing(t *testing.T) {
+	cases := []struct {
+		in, want, why string
+	}{
+		{"Abies alba   ", "Abies alba", `\s+$`},
+		{"Abies pectinata   0", "Abies pectinata", `\s+\d$`},
+		{"Abies alba          -  0", "Abies alba", `\s+\-\s+\d$`},
+		{"Abies alba", "Abies alba", "no trailer at all"},
+		{
+			"Alyssum repens subsp. trichostachyum var. trichostachyum0",
+			"Alyssum repens subsp. trichostachyum var. trichostachyum0",
+			"digit glued to the name: R keeps it",
+		},
+		{
+			"Aconitum ochroleucum Willd. n Gard. Dict., ed. 8.: n.° 10",
+			"Aconitum ochroleucum Willd. n Gard. Dict., ed. 8.: n.° 10",
+			`two digits: \s+\d$ needs exactly one`,
+		},
+		{"Carex nigra 2 0", "Carex nigra 2", "only the last digit goes"},
+		{"Poa annua 0   ", "Poa annua 0", `leftmost match is \s+$, the digit stays`},
+		{"     Abies pectinata   0", "Abies pectinata", "leading whitespace (trim.leading)"},
+	}
+	for _, c := range cases {
+		if got := trimEntry(c.in); got != c.want {
+			t.Errorf("trimEntry(%q) = %q, want %q (%s)", c.in, got, c.want, c.why)
+		}
+	}
+}
