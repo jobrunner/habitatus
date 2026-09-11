@@ -92,3 +92,46 @@ func TestGroupsRealFile(t *testing.T) {
 		t.Errorf("got %d members in +01 MA211-Arctic-coastal-saltmarsh, want 19", len(groups["+01 MA211-Arctic-coastal-saltmarsh"]))
 	}
 }
+
+func TestRulesRealFile(t *testing.T) {
+	p := os.Getenv("ESY_FILE")
+	if p == "" {
+		t.Skip("ESY_FILE not set")
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	secs, err := SplitSections(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules, err := ParseRuleHeaders(secs[3])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 312 {
+		t.Fatalf("got %d rules, want 312", len(rules))
+	}
+	var plain, bang, bangbang int
+	for _, r := range rules {
+		switch r.Variant {
+		case "":
+			plain++
+		case "!":
+			bang++
+		case "!!":
+			bangbang++
+		}
+		if r.Priority < 1 || r.Priority > 8 {
+			t.Errorf("rule %s: priority %d out of range", r.Label(), r.Priority)
+		}
+		if r.Raw == "" {
+			t.Errorf("rule %s has an empty formula", r.Label())
+		}
+	}
+	if plain != 273 || bang != 34 || bangbang != 5 {
+		t.Errorf("variants: plain=%d bang=%d bangbang=%d, want 273/34/5", plain, bang, bangbang)
+	}
+}
