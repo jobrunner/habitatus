@@ -1,27 +1,16 @@
 package esy
 
-import "math"
+import "github.com/jobrunner/habitatus/internal/cover"
 
 // TotalCover merges cover values assuming independent random overlap, the
-// Jennings-Fischer union used throughout ESy:
-//
-//	total = 1 - prod(1 - c/100)
-//
-// Cover is projected area, not amount, so adding values would double-count the
-// overlap and can exceed 100%. Upstream rounds to 10 decimals (commit 416bab9)
-// to keep threshold comparisons stable, and we reproduce that exactly.
+// Jennings-Fischer union used throughout ESy. See internal/cover.Union for
+// the formula and its rationale; this is a thin re-export kept here because
+// it is package esy's public entry point and every existing caller in this
+// package uses it under this name.
 func TotalCover(covers []float64) float64 {
-	if len(covers) == 0 {
-		return 0
-	}
-	rest := 1.0
-	for _, c := range covers {
-		rest *= 1 - c/100
-	}
-	return roundTo((1-rest)*100, 10)
+	return cover.Union(covers)
 }
 
 func roundTo(v float64, decimals int) float64 {
-	f := math.Pow(10, float64(decimals))
-	return math.Round(v*f) / f
+	return cover.RoundTo(v, decimals)
 }

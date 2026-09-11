@@ -4,7 +4,7 @@ package taxa
 import (
 	"sort"
 
-	"github.com/jobrunner/habitatus/internal/esy"
+	"github.com/jobrunner/habitatus/internal/cover"
 )
 
 // Record is one taxon observation.
@@ -90,7 +90,7 @@ func merge(rs []Record) []Record {
 	}
 	out := make([]Record, 0, len(byName))
 	for name, covers := range byName {
-		out = append(out, Record{Name: name, Cover: esy.TotalCover(covers)})
+		out = append(out, Record{Name: name, Cover: cover.Union(covers)})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
