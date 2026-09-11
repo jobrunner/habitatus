@@ -92,30 +92,62 @@ func TestEvalSumSqrtIsRounded(t *testing.T) {
 	}
 }
 
-// TestEvalCategoricalUnknownField pins a quirk of upstream's condition
-// matrix. A "$$C <field> EQ <value>" expression becomes a comparison of two
-// matrix columns, and both are only ever filled for fields that exist in the
-// header table (step3and5...R:407, intersect(names(header), ...)). For a
-// field the header does not carry, both columns stay at their zero default
-// and the comparison is TRUE for every plot. The 2025-10-03 rule file uses
-// "$$C Dataset", which the bundled Tuexen-Archiv header does not have, and
-// the fixture run confirms logi1 is TRUE there for every plot.
+// TestEvalCategoricalHeaderFields pins how a "$$C <field> EQ <value>"
+// expression behaves for the three states a header field can be in.
 //
-// An empty value is different: the column exists, "" is one of its factor
-// levels, and the comparison is FALSE.
-func TestEvalCategoricalUnknownField(t *testing.T) {
-	got, _, _ := evalRaw(t, "$$C Dataset EQ Swedish National Forest Inventory")
-	if got != True {
-		t.Errorf("unknown header field = %v, want TRUE (upstream compares 0 with 0)", got)
+// Upstream turns each categorical header column into factor levels and
+// compares level numbers, but it fills those two condition columns only for
+// fields the header TABLE has (step3and5...R:407):
+//
+//	categorical.header <- intersect(names(header), substr(w, 5, nchar(w)))
+//
+// That is a property of the schema, not of a single plot. habitatus therefore
+// decides it on the known header fields, not on whether one plot happens to
+// carry a key:
+//
+//   - field known, value present: ordinary string equality.
+//   - field known, value missing or empty: the value is unresolvable and
+//     becomes 0, so the comparison is FALSE (step3and5...R:414-425 marks NA
+//     as -1 and leaves the right-hand column at 0; neither equals the other).
+//   - field not known at all: both columns keep their zero default, 0 == 0,
+//     and the expression is TRUE for every plot.
+func TestEvalCategoricalHeaderFields(t *testing.T) {
+	cases := []struct {
+		name  string
+		raw   string
+		value string // "" means: do not put the key in the header map
+		have  bool
+		want  Tri
+	}{
+		{"known field, matching value", "$$C Coast_EEA EQ N_COAST", "N_COAST", true, True},
+		{"known field, other value", "$$C Coast_EEA EQ ATL_COAST", "N_COAST", true, False},
+		{"known field, empty value", "$$C Coast_EEA EQ ATL_COAST", "", true, False},
+		{"known field, key omitted", "$$C Coast_EEA EQ ATL_COAST", "", false, False},
+		// Dataset is the one optional field. A caller omitting it must not flip
+		// every "$$C Dataset EQ ..." to TRUE and fire the Swedish scree rule.
+		{"optional field omitted", "$$C Dataset EQ Swedish National Forest Inventory", "", false, False},
+		// No "$$C" name in the 2025-10-03 rule file is outside the schema, so
+		// this branch is unreachable with it; it is kept because it is what R
+		// does and a future rule file may name a field we do not know.
+		{"field outside the schema", "$$C Bogus EQ whatever", "", false, True},
 	}
-	x, err := rulepack.ParseExpr("$$C Coast_EEA EQ ATL_COAST")
-	if err != nil {
-		t.Fatalf("ParseExpr: %v", err)
-	}
-	p := testPlot()
-	p.Header["Coast_EEA"] = ""
-	if got, _, _ := testEnv().EvalExpr(x, p); got != False {
-		t.Errorf("empty header value = %v, want FALSE", got)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			x, err := rulepack.ParseExpr(c.raw)
+			if err != nil {
+				t.Fatalf("ParseExpr(%q): %v", c.raw, err)
+			}
+			p := testPlot()
+			field := x.Left.Atoms[0].Name
+			if c.have {
+				p.Header[field] = c.value
+			} else {
+				delete(p.Header, field)
+			}
+			if got, _, _ := testEnv().EvalExpr(x, p); got != c.want {
+				t.Errorf("%q = %v, want %v", c.raw, got, c.want)
+			}
+		})
 	}
 }
 

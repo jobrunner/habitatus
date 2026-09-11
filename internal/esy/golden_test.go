@@ -2,7 +2,10 @@ package esy_test
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -46,13 +49,15 @@ type intermediate struct {
 	ExprTrue []int `json:"expr_true"`
 }
 
-// loadPack parses the rule file the fixtures were generated from.
+// loadPack parses the rule file the fixtures were generated from, after
+// checking that it IS that file.
 func loadPack(t *testing.T) *rulepack.Pack {
 	t.Helper()
 	esyFile := os.Getenv("ESY_FILE")
 	if esyFile == "" {
 		t.Skip("ESY_FILE not set")
 	}
+	requireFreshFixtures(t, esyFile)
 	f, err := os.Open(esyFile)
 	if err != nil {
 		t.Fatal(err)
@@ -63,6 +68,54 @@ func loadPack(t *testing.T) *rulepack.Pack {
 		t.Fatal(err)
 	}
 	return pack
+}
+
+// requireFreshFixtures fails early when the fixtures were generated from a
+// different rule file or a different upstream commit than the one in play.
+// Without this a stale fixture set produces thousands of mismatches that read
+// like a port regression, which is the opposite of what rulepack.sha256 and
+// upstream.commit are recorded for.
+func requireFreshFixtures(t *testing.T, esyFile string) {
+	t.Helper()
+	const regen = "the fixtures are stale; regenerate them with `make fixtures`"
+
+	var meta struct {
+		UpstreamCommit string `json:"upstream_commit"`
+		ESYFile        string `json:"esy_file"`
+	}
+	readJSON(t, "meta.json", &meta)
+
+	if want, got := fixtureLine(t, "rulepack.sha256"), fileSHA256(t, esyFile); want != got {
+		t.Fatalf("%s\nESY_FILE %s\n  has SHA-256 %s\n  fixtures were built from %s (%s)",
+			regen, esyFile, got, want, meta.ESYFile)
+	}
+	if want, got := fixtureLine(t, "upstream.commit"), meta.UpstreamCommit; want != got {
+		t.Fatalf("%s\nupstream.commit is %s but meta.json records %s", regen, want, got)
+	}
+}
+
+// fixtureLine reads a fixture file holding a single value.
+func fixtureLine(t *testing.T, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(goldenDir, name))
+	if err != nil {
+		t.Fatalf("%s: %v (run `make fixtures`)", name, err)
+	}
+	return strings.TrimSpace(string(b))
+}
+
+func fileSHA256(t *testing.T, path string) string {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		t.Fatal(err)
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func requireFixtures(t *testing.T) {
@@ -196,7 +249,7 @@ func TestGoldenExpressions(t *testing.T) {
 	cases := map[int]goldenCase{}
 	scanJSONL(t, "cases.jsonl", func(c goldenCase) { cases[c.ID] = c })
 
-	var plots, compared, bad int
+	var plots, compared, bad, allowed int
 	scanJSONL(t, "intermediates.jsonl", func(im intermediate) {
 		c, ok := cases[im.ID]
 		if !ok {
@@ -217,20 +270,66 @@ func TestGoldenExpressions(t *testing.T) {
 			for i, lf := range leaves {
 				got, left, right := env.EvalExpr(lf.Expr, p)
 				compared++
-				if got.IsTrue() != rTrue[idx[i]] {
-					bad++
-					if bad <= 20 {
-						t.Errorf("plot %d rule %s expression %d %q: %v (%g, %g), R says %v",
-							im.ID, rule.Label(), i, lf.Raw, got, left, right, rTrue[idx[i]])
-					}
+				if got.IsTrue() == rTrue[idx[i]] {
+					continue
+				}
+				if schemaFieldNotSupplied(lf.Expr, c.Header) {
+					allowed++
+					continue
+				}
+				bad++
+				if bad <= 20 {
+					t.Errorf("plot %d rule %s expression %d %q: %v (%g, %g), R says %v",
+						im.ID, rule.Label(), i, lf.Raw, got, left, right, rTrue[idx[i]])
 				}
 			}
 		}
 	})
-	t.Logf("%d plots, %d expression evaluations compared, %d differ", plots, compared, bad)
+	t.Logf("%d plots, %d expression evaluations compared, %d differ, %d are the documented schema exception",
+		plots, compared, bad, allowed)
 	if bad > 0 {
 		t.Errorf("%d of %d expression evaluations differ from upstream", bad, compared)
 	}
+	// The exception must actually occur. If it stops occurring -- because the
+	// fixture header gained the field, or the rule file stopped naming it --
+	// the allowance is dead and must be removed rather than left to hide a
+	// future divergence.
+	if allowed == 0 {
+		t.Error("the schema exception never fired; schemaFieldNotSupplied is now dead and should be removed")
+	}
+}
+
+// schemaFieldNotSupplied reports whether a disagreement on this expression is
+// the one divergence from upstream that habitatus makes deliberately.
+//
+// R decides the "$$C" quirk on its header TABLE: a field the table has no
+// column for leaves both condition columns at zero, so the comparison is
+// 0 == 0 and TRUE for every plot. habitatus decides it on the header SCHEMA
+// instead (esy.KnownHeaderFields), because a service takes one plot at a time
+// and a caller who merely omits a field must not thereby satisfy a rule. See
+// esy.compareCategorical.
+//
+// The two rules disagree exactly when the rule file names a schema field that
+// the input does not supply under that name. The bundled archive does that
+// twice over: its header spells "$$C Dataset" as "dataset" and
+// "$$N Altitude (m)" as "Altitude..m.", both artefacts of read.csv. So R
+// answers TRUE and habitatus answers FALSE for
+// "<$$C Dataset EQ Swedish National Forest Inventory>" on every plot.
+//
+// It cannot change a classification with this rule file: the only rule using
+// it, U21, is one of the 100 that can never fire (see
+// TestGoldenRuleCoverage), and TestGoldenMaster confirms the winner and the
+// match set are identical on all 11,337 plots.
+func schemaFieldNotSupplied(x rulepack.Expr, header map[string]string) bool {
+	if len(x.Left.Atoms) != 1 || x.Left.Atoms[0].Kind != "$$C" {
+		return false
+	}
+	field := x.Left.Atoms[0].Name
+	if !esy.KnownHeaderFields[field] {
+		return false
+	}
+	_, supplied := header[field]
+	return !supplied
 }
 
 // leavesOf returns a formula's membership expressions in file order.

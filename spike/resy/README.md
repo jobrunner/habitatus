@@ -61,9 +61,25 @@ The header columns come from `read.csv`, which turns `Altitude (m)` into
 `Altitude..m.`. The rule file asks for `$$N Altitude (m)` and `$$C Dataset`,
 and neither matches a column, so upstream leaves both at zero for every plot.
 The fixtures carry the header keys verbatim, so habitatus sees exactly what R
-saw and reproduces the same behaviour. Renaming them would exercise those
-conditions but would also change the archive baseline, so the schema is left
-as upstream's own data has it.
+saw. Renaming them would exercise those conditions but would also change the
+archive baseline, so the schema is left as upstream's own data has it.
+
+For `$$N` that is the same answer on both sides: an unmatched field is zero
+either way. For `$$C` it is not, and it is the one place habitatus departs
+from upstream on purpose. R decides the quirk on its header **table** — a
+field with no column leaves both condition columns at zero, so `0 == 0` is
+TRUE for every plot — whereas habitatus decides it on the header **schema**
+(`esy.KnownHeaderFields`), because a service takes one plot at a time and a
+caller who merely omits the optional `Dataset` field must not thereby satisfy
+`<$$C Dataset EQ Swedish National Forest Inventory>` and fire a rule that
+should not fire. So R answers TRUE there and habitatus answers FALSE.
+
+It cannot change a classification with this rule file: the only rule using
+that expression, `U21`, is one of the 100 that can never fire, and
+`TestGoldenMaster` confirms the winner and the match set are identical on all
+11,337 plots. `TestGoldenExpressions` allows exactly this one disagreement,
+recognises it from its shape rather than from a hard-coded string, reports how
+often it fired, and fails if it ever stops firing.
 
 ## Output
 

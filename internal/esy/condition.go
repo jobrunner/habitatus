@@ -79,28 +79,57 @@ func isCategorical(o rulepack.Operand) bool {
 	return len(o.Atoms) == 1 && o.Atoms[0].Kind == "$$C"
 }
 
+// KnownHeaderFields is the header schema the ESy rule language addresses:
+// every "$$C" and "$$N" field name that occurs in the 2025-10-03 rule file.
+// It describes the schema, not one plot's data — a plot may leave any of
+// these unset, and that is a missing VALUE, not an unknown field.
+// compareCategorical explains why the distinction decides a comparison.
+var KnownHeaderFields = map[string]bool{
+	"Country":      true,
+	"Coast_EEA":    true,
+	"Dunes_Bohn":   true,
+	"Dataset":      true,
+	"Ecoreg":       true,
+	"Altitude (m)": true,
+	"DEG_LAT":      true,
+	"DEG_LON":      true,
+}
+
 // compareCategorical compares a categorical header field. R turns the header
 // column into factor levels and compares level numbers; a missing value
 // becomes factor level 0, which matches no real level — i.e. false, not
 // Unknown (see EvalExpr's doc comment).
 //
-// A field the header does not carry at all is different from one carrying an
-// empty value. Upstream fills the two condition columns only for fields the
-// header table actually has (step3and5...R:405-431):
+// Upstream fills the two condition columns of a "$$C <field> EQ <value>"
+// expression only for fields the header TABLE carries
+// (step3and5...R:405-431):
 //
 //	categorical.header <- intersect(names(header), substr(w, 5, nchar(w)))
 //
-// For any other field both columns keep their zero default, so the
-// comparison is 0 == 0 and the expression is TRUE for every plot. The
-// 2025-10-03 file's "$$C Dataset EQ Swedish National Forest Inventory" hits
-// exactly this, and the fixture run confirms upstream evaluates it TRUE.
+// That test is on the schema, so it is reproduced here against
+// KnownHeaderFields and not against one plot's map. The distinction matters
+// in a service that upstream's batch script never had to face: deciding it
+// per plot would mean a caller who simply omits the optional "Dataset" field
+// flips every "<$$C Dataset EQ ...>" from FALSE to TRUE and fires a rule
+// that must not fire.
+//
+//   - Field in the schema, value present: ordinary string equality.
+//   - Field in the schema, value missing or empty: the value is
+//     unresolvable and becomes 0, so the comparison is FALSE. Upstream marks
+//     NA as -1 and leaves the right-hand column at 0, and neither equals the
+//     other (step3and5...R:414-425).
+//   - Field not in the schema: both columns keep their zero default, the
+//     comparison is 0 == 0, and the expression is TRUE for every plot. That
+//     branch is unreachable with this rule file — every "$$C" name in it is
+//     one of the eight — but it is what R does, and a later rule file may
+//     name a field the schema does not know.
 func (e Env) compareCategorical(x rulepack.Expr, p Plot) Tri {
 	field := x.Left.Atoms[0].Name
-	have, ok := p.Header[field]
-	if !ok {
+	if !KnownHeaderFields[field] {
 		return True
 	}
-	if have == "" {
+	have, ok := p.Header[field]
+	if !ok || have == "" {
 		return False
 	}
 	return FromBool(have == x.Right.Literal)
