@@ -73,6 +73,25 @@ func (Or) isNode()   {}
 func (Not) isNode()  {}
 func (Leaf) isNode() {}
 
+// Pack is a fully parsed and assembled ESy rule pack, ready for evaluation.
+type Pack struct {
+	// Aggregation maps a source taxon name to its target (section 1).
+	Aggregation map[string]string
+	// Groups maps a group key (Qualifier + " " + Name, or just Name when
+	// there is no qualifier) to its member taxon names (section 2).
+	Groups map[string][]string
+	// Rules are the parsed rules of section 3, each carrying a Formula.
+	Rules []Rule
+	// Issues collects the defects found while parsing.
+	Issues Issues
+	// KnownTaxa is the set of taxon names the rule pack can act on: every
+	// member of every species group, unioned with every taxon named
+	// directly in a rule (a Leaf atom whose Kind is empty). taxa.Resolve
+	// uses this to tell a caller which of their names can never satisfy any
+	// condition.
+	KnownTaxa map[string]bool
+}
+
 // Issues counts and names the defects found in a rule file.
 type Issues struct {
 	// DuplicateSources are source names listed under more than one target.

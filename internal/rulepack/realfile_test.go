@@ -206,3 +206,32 @@ func TestParseEveryRealFormula(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadRealFile(t *testing.T) {
+	p := os.Getenv("ESY_FILE")
+	if p == "" {
+		t.Skip("ESY_FILE not set")
+	}
+	f, _ := os.Open(p)
+	defer f.Close()
+	pack, err := Load(f)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(pack.Rules) != 312 {
+		t.Errorf("rules = %d, want 312", len(pack.Rules))
+	}
+	for _, r := range pack.Rules {
+		if r.Formula == nil {
+			t.Errorf("rule %s has no parsed formula", r.Label())
+		}
+	}
+	if len(pack.Issues.UnknownGroups) != 0 {
+		t.Errorf("rules reference undefined groups: %v", pack.Issues.UnknownGroups)
+	}
+	if len(pack.KnownTaxa) == 0 {
+		t.Errorf("KnownTaxa is empty")
+	}
+	t.Logf("issues: %d duplicate sources, %d chains",
+		len(pack.Issues.DuplicateSources), len(pack.Issues.Chains))
+}
