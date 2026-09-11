@@ -82,7 +82,10 @@ Written to `testdata/golden/`:
 
 `intermediates.jsonl` is what makes a divergence diagnosable: comparing only
 the final EUNIS code says *that* something differs, comparing conditions says
-*which one*. It defaults to the first 200 plots; set
+*which one*. `TestGoldenExpressions` uses it to compare every membership
+expression of every rule against upstream's `logi1`, which is where two
+errors cancelling inside one formula would show up. It defaults to an even
+stride of 300 plots across the archive and the synthetic plots; set
 `HABITATUS_INTERMEDIATE_PLOTS=<id,id,...>` to dump specific ones, then
 
     go run spike/resy/diagnose.go plot <id> <rule>

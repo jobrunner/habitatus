@@ -36,6 +36,16 @@ type goldenExpect struct {
 	Matches []string `json:"matches"`
 }
 
+// intermediate is the part of one plot's intermediates.jsonl entry this test
+// needs: the indices of the membership expressions upstream's logi1 holds
+// TRUE for it, 1-based as R writes them. The same line also carries the
+// non-zero entries of that plot's plot.cond row, which spike/resy/diagnose.go
+// reads when a divergence has to be traced to a single condition.
+type intermediate struct {
+	ID       int   `json:"id"`
+	ExprTrue []int `json:"expr_true"`
+}
+
 // loadPack parses the rule file the fixtures were generated from.
 func loadPack(t *testing.T) *rulepack.Pack {
 	t.Helper()
@@ -80,6 +90,18 @@ func scanJSONL[T any](t *testing.T, name string, fn func(T)) {
 		fn(v)
 	}
 	if err := s.Err(); err != nil {
+		t.Fatalf("%s: %v", name, err)
+	}
+}
+
+// readJSON reads one whole JSON file from the fixture directory.
+func readJSON(t *testing.T, name string, v any) {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(goldenDir, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(b, v); err != nil {
 		t.Fatalf("%s: %v", name, err)
 	}
 }
@@ -138,6 +160,92 @@ func TestGoldenMaster(t *testing.T) {
 		t.Errorf("golden master: %d of %d plots differ in the winner, %d in the match set",
 			winnerBad, total, matchBad)
 	}
+}
+
+// TestGoldenExpressions compares the layer beneath the classification: every
+// membership expression of every rule, plot by plot, against the truth values
+// upstream recorded in logi1. Agreeing on the winner while disagreeing on an
+// expression is possible -- two errors can cancel inside one formula -- and
+// this is where that would show. It runs over the plots in
+// intermediates.jsonl -- by default an even stride of 300 across the archive
+// and the synthetic plots; see HABITATUS_INTERMEDIATE_PLOTS.
+//
+// The two sides are matched positionally: upstream extracts the "<...>"
+// bodies of a formula left to right and so does the Go parser, and none of
+// upstream's rewrites changes how many there are.
+func TestGoldenExpressions(t *testing.T) {
+	requireFixtures(t)
+	pack := loadPack(t)
+	env := esy.Env{Groups: pack.Groups}
+
+	var ruleExprs []struct {
+		Label string `json:"label"`
+		Exprs []int  `json:"exprs"`
+	}
+	readJSON(t, "rule-exprs.json", &ruleExprs)
+	// Matched by position, not by label: twelve rules share the label "T3M".
+	if len(ruleExprs) != len(pack.Rules) {
+		t.Fatalf("%d rules in R, %d here", len(ruleExprs), len(pack.Rules))
+	}
+	for i, r := range pack.Rules {
+		if ruleExprs[i].Label != r.Label() {
+			t.Fatalf("rule %d is %q in R and %q here", i, ruleExprs[i].Label, r.Label())
+		}
+	}
+
+	cases := map[int]goldenCase{}
+	scanJSONL(t, "cases.jsonl", func(c goldenCase) { cases[c.ID] = c })
+
+	var plots, compared, bad int
+	scanJSONL(t, "intermediates.jsonl", func(im intermediate) {
+		c, ok := cases[im.ID]
+		if !ok {
+			t.Fatalf("intermediate for unknown plot %d", im.ID)
+		}
+		plots++
+		rTrue := map[int]bool{}
+		for _, i := range im.ExprTrue {
+			rTrue[i] = true
+		}
+		p := plotOf(c, pack)
+		for ri, rule := range pack.Rules {
+			idx := ruleExprs[ri].Exprs
+			leaves := leavesOf(rule.Formula)
+			if len(leaves) != len(idx) {
+				t.Fatalf("rule %s: %d expressions here, %d in R", rule.Label(), len(leaves), len(idx))
+			}
+			for i, lf := range leaves {
+				got, left, right := env.EvalExpr(lf.Expr, p)
+				compared++
+				if got.IsTrue() != rTrue[idx[i]] {
+					bad++
+					if bad <= 20 {
+						t.Errorf("plot %d rule %s expression %d %q: %v (%g, %g), R says %v",
+							im.ID, rule.Label(), i, lf.Raw, got, left, right, rTrue[idx[i]])
+					}
+				}
+			}
+		}
+	})
+	t.Logf("%d plots, %d expression evaluations compared, %d differ", plots, compared, bad)
+	if bad > 0 {
+		t.Errorf("%d of %d expression evaluations differ from upstream", bad, compared)
+	}
+}
+
+// leavesOf returns a formula's membership expressions in file order.
+func leavesOf(n rulepack.Node) []rulepack.Leaf {
+	switch v := n.(type) {
+	case rulepack.Leaf:
+		return []rulepack.Leaf{v}
+	case rulepack.And:
+		return append(leavesOf(v.L), leavesOf(v.R)...)
+	case rulepack.Or:
+		return append(leavesOf(v.L), leavesOf(v.R)...)
+	case rulepack.Not:
+		return append(leavesOf(v.L), leavesOf(v.R)...)
+	}
+	return nil
 }
 
 // TestGoldenRuleCoverage reports which rules never fired over the whole fixture

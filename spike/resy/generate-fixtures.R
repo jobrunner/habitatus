@@ -181,7 +181,9 @@ if (nzchar(sel)) {
   want <- match(as.integer(strsplit(sel, ",", fixed = TRUE)[[1]]), ids)
   want <- want[!is.na(want)]
 } else {
-  want <- seq_len(min(200, length(ids)))
+  # An even stride over the whole set, so the sample spans the archive and the
+  # synthetic plots rather than the first few hundred archive plots.
+  want <- unique(round(seq(1, length(ids), length.out = min(300, length(ids)))))
 }
 L1 <- do.call(cbind, logi1) # plots x expressions, logical
 con <- w("intermediates.jsonl")
