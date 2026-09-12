@@ -48,6 +48,9 @@ func LoadBackbones(dir string) (map[string]map[string]string, map[string]Issues,
 		if err != nil {
 			return nil, nil, fmt.Errorf("%s: %w", e.Name(), err)
 		}
+		if _, ok := secs[1]; !ok {
+			return nil, nil, fmt.Errorf("%s: no section 1 (nomenclature translation table)", e.Name())
+		}
 		tbl, iss := ParseAggregation(secs[1])
 		out[id] = tbl
 		issues[id] = iss

@@ -14,6 +14,16 @@ func Load(r io.Reader) (*Pack, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Sections 1-3 carry the nomenclature table, the groups and the rules
+	// themselves; a file missing any of them is not a data defect but a
+	// parse failure, and must stop the start rather than load as a partial
+	// pack that silently answers "?" for every plot. Section 4 is empty in
+	// the real file and stays optional.
+	for _, n := range []int{1, 2, 3} {
+		if _, ok := secs[n]; !ok {
+			return nil, fmt.Errorf("section %d is missing", n)
+		}
+	}
 	agg, issues := ParseAggregation(secs[1])
 	groups := ParseGroups(secs[2])
 	rules, err := ParseRuleHeaders(secs[3])
