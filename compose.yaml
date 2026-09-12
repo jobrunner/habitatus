@@ -1,0 +1,18 @@
+services:
+  habitatus:
+    build:
+      context: .
+      args:
+        VERSION: dev
+        COMMIT: local
+    image: habitatus:dev
+    ports:
+      - "8080:8080"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # No writable volume: habitatus reads the rule file (and, optionally,
+    # the backbone tables) once at startup and serves everything else from
+    # memory, so --read-only needs no tmpfs mount.

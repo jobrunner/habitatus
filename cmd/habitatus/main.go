@@ -24,6 +24,15 @@ import (
 	"github.com/jobrunner/habitatus/internal/rulepack"
 )
 
+// version and commit identify the build. They stay at their zero values for
+// `go build`/`go run`; the release Dockerfile stamps real values in via
+// `-ldflags "-X main.version=... -X main.commit=..."` so a running binary
+// can be traced back to the source it was built from.
+var (
+	version = "dev"
+	commit  = "unknown"
+)
+
 func main() {
 	addr := flag.String("addr", ":8080", "listen address")
 	rulesPath := flag.String("rules", "", "path to the ESy rule file")
@@ -41,6 +50,7 @@ func main() {
 	// first protocol message would corrupt the stream for the client
 	// reading it.
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	log.Info("habitatus starting", "version", version, "commit", commit)
 
 	if *rulesPath == "" {
 		log.Error("missing -rules")

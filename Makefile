@@ -78,3 +78,19 @@ clean-fixtures:
 	rm -f $(GOLDEN)/*.jsonl $(GOLDEN)/*.json $(GOLDEN)/rulepack.sha256 $(GOLDEN)/upstream.commit
 	rm -f $(GOLDEN_REPAIRED)/*.jsonl $(GOLDEN_REPAIRED)/*.json \
 	  $(GOLDEN_REPAIRED)/rulepack.sha256 $(GOLDEN_REPAIRED)/upstream.commit
+
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+
+.PHONY: docker-build docker-run
+
+docker-build:
+	docker build --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) -t habitatus:$(VERSION) -t habitatus:latest .
+
+# Runs the hardened image the same way `make docker-build`'s output is meant
+# to be operated: read-only root fs, no capabilities, no privilege
+# escalation. If this doesn't work, the Dockerfile is wrong, not the flags.
+docker-run:
+	docker run --rm -p 8080:8080 \
+	  --read-only --cap-drop=ALL --security-opt=no-new-privileges \
+	  habitatus:latest
