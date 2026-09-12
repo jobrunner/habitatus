@@ -39,6 +39,7 @@ func LoadBackbones(dir string) (map[string]map[string]string, map[string]Issues,
 		if _, dup := out[id]; dup {
 			return nil, nil, fmt.Errorf("backbone id %q is claimed by two files", id)
 		}
+		//nolint:gosec // dir is the operator-supplied backbone directory and e.Name() comes from reading it
 		f, err := os.Open(filepath.Join(dir, e.Name()))
 		if err != nil {
 			return nil, nil, err

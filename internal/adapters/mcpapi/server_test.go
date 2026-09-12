@@ -35,9 +35,6 @@ func testServer(t *testing.T) *Server {
 	return NewServer(classify.NewService(pack, nil, map[string]string{"rulepack": "test"}, esy.Repaired))
 }
 
-const goodHeader = `{"Country": "Germany", "Coast_EEA": "N_COAST", "Dunes_Bohn": "N_DUNES",
-		"Ecoreg": "664", "Altitude (m)": "250", "DEG_LAT": "49.79", "DEG_LON": "9.93"}`
-
 func decodeResponses(t *testing.T, out *bytes.Buffer) []map[string]any {
 	t.Helper()
 	var got []map[string]any
@@ -147,7 +144,7 @@ func TestToolsCallClassifyValidationErrorIsResultNotFailure(t *testing.T) {
 	body, _ := json.Marshal(call)
 	next := `{"jsonrpc":"2.0","id":5,"method":"tools/list"}`
 	var out bytes.Buffer
-	in := strings.Join([]string{string(body), next}, "\n") + "\n"
+	in := string(body) + "\n" + next + "\n"
 	if err := testServer(t).Serve(strings.NewReader(in), &out); err != nil {
 		t.Fatal(err)
 	}

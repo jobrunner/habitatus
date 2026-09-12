@@ -99,7 +99,7 @@ func loadPack(t *testing.T, v variant) *rulepack.Pack {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	pack, err := rulepack.Load(f)
 	if err != nil {
 		t.Fatal(err)
@@ -167,7 +167,7 @@ func fileSHA256(t *testing.T, path string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		t.Fatal(err)
@@ -182,7 +182,7 @@ func scanJSONL[T any](t *testing.T, dir, name string, fn func(T)) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	s := bufio.NewScanner(f)
 	s.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	for s.Scan() {

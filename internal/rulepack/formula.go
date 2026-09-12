@@ -116,13 +116,13 @@ func tokenizeFormula(s string) ([]string, error) {
 	var out []string
 	i := 0
 	for i < len(s) {
-		switch c := s[i]; {
-		case c == ' ' || c == '\t':
+		switch c := s[i]; c {
+		case ' ', '\t':
 			i++
-		case c == '(' || c == ')':
+		case '(', ')':
 			out = append(out, string(c))
 			i++
-		case c == '<':
+		case '<':
 			j := strings.IndexByte(s[i:], '>')
 			if j < 0 {
 				return nil, fmt.Errorf("unterminated expression at offset %d", i)

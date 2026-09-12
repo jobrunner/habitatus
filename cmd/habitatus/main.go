@@ -130,11 +130,12 @@ func run(log *slog.Logger, addr, rulesPath, backbonesPath string, mcp bool, mode
 	// after the fact must not have to infer it.
 	log.Info("evaluation mode", "mode", mode.String())
 
+	//nolint:gosec // the rule file path is an operator-supplied flag; reading it is the program's purpose
 	f, err := os.Open(rulesPath)
 	if err != nil {
 		return errors.New("cannot open rule file: " + err.Error())
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	digest, err := fileDigest(f)
 	if err != nil {

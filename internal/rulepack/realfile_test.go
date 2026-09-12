@@ -14,7 +14,7 @@ func TestSplitSectionsRealFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	got, err := SplitSections(f)
 	if err != nil {
 		t.Fatal(err)
@@ -35,7 +35,7 @@ func TestAggregationRealFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	secs, err := SplitSections(f)
 	if err != nil {
 		t.Fatal(err)
@@ -64,7 +64,7 @@ func TestGroupsRealFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	secs, err := SplitSections(f)
 	if err != nil {
 		t.Fatal(err)
@@ -113,7 +113,7 @@ func TestRulesRealFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	secs, err := SplitSections(f)
 	if err != nil {
 		t.Fatal(err)
@@ -156,7 +156,7 @@ func TestParseEveryRealExpression(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	secs, err := SplitSections(f)
 	if err != nil {
 		t.Fatal(err)
@@ -202,7 +202,7 @@ func TestParseEveryRealFormula(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	secs, err := SplitSections(f)
 	if err != nil {
 		t.Fatal(err)
@@ -224,7 +224,7 @@ func TestLoadRealFile(t *testing.T) {
 		t.Skip("ESY_FILE not set")
 	}
 	f, _ := os.Open(p)
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	pack, err := Load(f)
 	if err != nil {
 		t.Fatalf("Load: %v", err)

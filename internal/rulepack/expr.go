@@ -5,8 +5,26 @@ import (
 	"strings"
 )
 
+// The atom kinds of the ESy expression syntax, verbatim as the rule file
+// spells them. They are wire format: the parser matches on these exact
+// strings, so a "correction" here changes which rules fire.
+const (
+	kindCover        = "$$C" // the plot's total cover
+	kindCount        = "$$N" // the plot's species count
+	kindTriple       = "###"
+	kindDominant     = "##D"
+	kindCoverGroup   = "##C"
+	kindQuart        = "##Q" // a group's quartile threshold
+	kindTotalCover   = "#TC"
+	kindSpeciesCover = "#SC"
+	kindTotalExcept  = "#T$"
+	kindSelfSet      = "#$$" // comparison set includes the compared group itself (spec §5.1)
+	kindNon          = "NON"
+)
+
 var atomPrefixes = []string{
-	"$$C", "$$N", "###", "##D", "##C", "##Q", "#TC", "#SC", "#T$", "#$$", "NON",
+	kindCover, kindCount, kindTriple, kindDominant, kindCoverGroup, kindQuart,
+	kindTotalCover, kindSpeciesCover, kindTotalExcept, kindSelfSet, kindNon,
 }
 
 // operatorTokens are the comparison operators that may split an expression.
@@ -94,7 +112,7 @@ func applySCExcept(e *Expr) {
 		return
 	}
 	for _, a := range e.Right.Atoms {
-		if a.Kind == "#SC" {
+		if a.Kind == kindSpeciesCover {
 			e.Right.Except = e.Left.Atoms
 			return
 		}
@@ -126,9 +144,9 @@ func isAlwaysFalse(s string) bool {
 	if spaced {
 		return false
 	}
-	any := strings.Contains(s, "GR") || strings.Contains(s, "GE") ||
+	bare := strings.Contains(s, "GR") || strings.Contains(s, "GE") ||
 		strings.Contains(s, "EQ")
-	if any {
+	if bare {
 		return true
 	}
 	return len(s) >= 3 && s[2] >= '0' && s[2] <= '9'
@@ -136,6 +154,9 @@ func isAlwaysFalse(s string) bool {
 
 // splitOnOperator finds the last standalone GR/GE/EQ occurrence: preceded by
 // a space, followed by a space or directly by a digit, '#', '$' or '-'.
+// character for character; every branch is one of its conditions.
+//
+//nolint:gocognit // the scan reproduces upstream's operator detection
 func splitOnOperator(s string) (left, op, right string) {
 	bestIdx := -1
 	bestOp := ""
@@ -154,7 +175,7 @@ func splitOnOperator(s string) (left, op, right string) {
 			after := i + len(tok)
 			if after < len(s) {
 				c := s[after]
-				if c != ' ' && !(c >= '0' && c <= '9') && c != '#' && c != '$' && c != '-' {
+				if c != ' ' && (c < '0' || c > '9') && c != '#' && c != '$' && c != '-' {
 					continue
 				}
 			}
@@ -233,6 +254,9 @@ func parseAtomList(s string) ([]Atom, error) {
 	return out, nil
 }
 
+// a dispatch table would only move the same eleven cases elsewhere.
+//
+//nolint:gocyclo // one branch per ESy atom kind — the syntax has eleven, and
 func parseAtom(s string) (Atom, error) {
 	if s == "" {
 		return Atom{}, fmt.Errorf("empty atom")
@@ -254,14 +278,14 @@ func parseAtom(s string) (Atom, error) {
 			// silently. No name in the 2025-10-03 file begins with those
 			// three capitals; if one ever does, this stops the load and a
 			// human decides.
-			if p == "NON" && len(s) > len(p) && s[len(p)] != ' ' {
+			if p == kindNon && len(s) > len(p) && s[len(p)] != ' ' {
 				return Atom{}, fmt.Errorf("%q: NON without a following space is ambiguous", s)
 			}
 			a.Kind, s = p, strings.TrimSpace(s[len(p):])
 			break
 		}
 	}
-	if a.Kind == "NON" {
+	if a.Kind == kindNon {
 		inner, err := parseAtom(s)
 		if err != nil {
 			return Atom{}, fmt.Errorf("NON without an inner measure: %w", err)

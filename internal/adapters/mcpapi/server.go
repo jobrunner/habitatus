@@ -210,7 +210,7 @@ func (s *Server) Serve(in io.Reader, out io.Writer) error {
 	enc := json.NewEncoder(out)
 	for sc.Scan() {
 		line := sc.Bytes()
-		if len(strings.TrimSpace(string(line))) == 0 {
+		if strings.TrimSpace(string(line)) == "" {
 			continue
 		}
 		var req rpcRequest

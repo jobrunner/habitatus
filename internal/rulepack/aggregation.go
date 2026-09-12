@@ -16,6 +16,10 @@ import (
 // That is not a choice: upstream resolves names with match(), which returns the
 // first hit. Self-mappings are dropped, as upstream does with
 // AGG[AGG$values != AGG$ind, ].
+// loop (ParsingExpertFile.R:19-60); splitting it would hide the correspondence
+// to the R source that makes this parser auditable.
+//
+//nolint:gocognit // one pass over section 1 that mirrors upstream's own single
 func ParseAggregation(lines []string) (map[string]string, Issues) {
 	out := make(map[string]string, len(lines))
 	var issues Issues
@@ -60,7 +64,7 @@ func ParseAggregation(lines []string) (map[string]string, Issues) {
 }
 
 func isIndented(line string) bool {
-	return len(line) > 0 && (line[0] == ' ' || line[0] == '\t')
+	return line != "" && (line[0] == ' ' || line[0] == '\t')
 }
 
 // trimEntry reproduces upstream's entry-line trimming for section 1: R applies

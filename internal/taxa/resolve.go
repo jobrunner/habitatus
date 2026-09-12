@@ -35,8 +35,11 @@ type Step struct {
 // other quirk of the original is reproduced rather than repaired; this one
 // was decided in spec §8 and must not be extended to further "obvious" fixes
 // without the same explicit decision.
+// poplarChain is the section-1 entry the correction above disarms.
+const poplarChain = "Populus x canadensis + P. nigra"
+
 var corrections = map[string]string{
-	"Populus x canadensis + P. nigra": "Populus x canadensis",
+	poplarChain: "Populus x canadensis",
 }
 
 // Resolve maps input names onto ESy concepts in two stages — first the source

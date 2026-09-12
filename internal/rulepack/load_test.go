@@ -63,7 +63,7 @@ func TestLoadKnownTaxaUnionsGroupMembersAndBareAtoms(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	var got []string
+	got := make([]string, 0, len(pack.KnownTaxa))
 	for n := range pack.KnownTaxa {
 		got = append(got, n)
 	}
