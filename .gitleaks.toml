@@ -1,0 +1,19 @@
+# gitleaks config for habitatus. Starts from the built-in ruleset and allowlists
+# the paths that legitimately hold secret-shaped strings: the vendored rule file
+# (165,260 lines of taxon names, some of which look like high-entropy tokens),
+# the golden-master fixtures, and the docs. Real secrets in real source still
+# fail the Secret Scan job.
+title = "habitatus gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Vendored rule data, fixtures and prose. Test SOURCE files stay scanned — only data directories are exempt."
+paths = [
+  '''(^|/)testdata/''',
+  '''(^|/)data/esy/''',
+  '''README\.md''',
+  '''CHANGELOG\.md''',
+  '''docs/.*\.md''',
+]

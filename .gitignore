@@ -11,3 +11,8 @@ build/
 
 # Harness-verwaltete Worktrees
 .claude/worktrees/
+
+# Coverage profiles and SBOMs produced by the quality targets.
+coverage.out
+coverage.info
+sbom.*.json

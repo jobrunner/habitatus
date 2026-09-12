@@ -1,0 +1,16 @@
+# Conventional Commits validation. release-please derives the next version and
+# the CHANGELOG from these types (feat → minor, fix → patch, `!`/BREAKING
+# CHANGE → major), so a non-conventional commit mis-versions the release.
+extends:
+  - '@commitlint/config-conventional'
+rules:
+  header-max-length: [2, always, 120]
+  type-enum:
+    - 2
+    - always
+    - [build, chore, ci, data, docs, feat, fix, perf, refactor, revert, style, test]
+  # Warning, not error: Dependabot's generated bodies routinely exceed 100
+  # characters per line, and body length is cosmetic — release-please reads the
+  # header, not the body. (failOnWarnings defaults to false, so level-1 never
+  # fails CI.)
+  body-max-line-length: [1, always, 100]

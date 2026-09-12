@@ -1,0 +1,31 @@
+{
+  "_comment": "Ratchet config for scripts/codecharta-ratchet.py, run against the CodeCharta map (build/habitatus.cc.json.gz). Three gates: (1) per-file aggregate complexity, (2) per-FUNCTION complexity (not gameable by moving code between files), (3) hotspot (complex AND under-tested). Ratchet by LOWERING the numbers as the code improves; RAISING a baseline entry needs a justification in the PR.",
+  "complexity": {
+    "metric": "complexity",
+    "default_cap": 50,
+    "_default_cap_note": "Per-file SUM of function complexity. Highest non-baseline file is classify.go at 44.",
+    "_condition_note": "esy/condition.go at 101 is the evaluator's condition kinds: ten kinds, each a small case, plus the qualifier and comparison-set handling the spec describes in §5.1. The per-function maximum is 9 — there is no complex function here, only many simple ones. Splitting the file would scatter the ten kinds that must be read together against the rule syntax.",
+    "_expr_note": "rulepack/expr.go at 82 is the expression parser: eleven atom kinds and the operator scan that reproduces upstream's detection character for character (ParsingExpertFile.R). Both carry a //nolint with the same reasoning.",
+    "baseline": {
+      "internal/esy/condition.go": 101,
+      "internal/rulepack/expr.go": 82
+    }
+  },
+  "function_complexity": {
+    "metric": "max_complexity_per_function",
+    "default_cap": 15,
+    "_default_cap_note": "The single most complex function in a file. Unlike the per-file sum, this cannot be satisfied by splitting a file.",
+    "_parseatom_note": "parseAtom at 18: one branch per ESy atom kind, and the syntax has eleven. A dispatch table would move the same eleven cases elsewhere without simplifying anything.",
+    "_main_note": "main.go at 16: flag parsing with flag > environment > default precedence for four options, plus start-up wiring. The composition root is where this belongs.",
+    "baseline": {
+      "internal/rulepack/expr.go": 18,
+      "cmd/habitatus/main.go": 16
+    }
+  },
+  "hotspot": {
+    "min_complexity": 30,
+    "min_coverage": 70,
+    "_note": "A file that is both complex and under-tested fails. Files without coverage data (cmd/habitatus, exercised by the container smoke test rather than by unit tests) are skipped by the script.",
+    "allow": []
+  }
+}
