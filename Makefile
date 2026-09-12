@@ -167,5 +167,10 @@ codecharta:
 	ccsh merge build/base.cc.json build/git.cc.json build/coverage.cc.json -o build/habitatus.cc.json.gz
 	python3 scripts/codecharta-ratchet.py build/habitatus.cc.json.gz .codecharta-ratchet.json
 
-# What CI enforces, in one target.
+# The CI gates that need no tooling beyond Go: lint, tests with the coverage
+# ratchet, the real-file tests, benchmarks, a short fuzz pass and the licence
+# check. Deliberately NOT the same set as CI — `sbom` needs syft, `codecharta`
+# needs ccsh and a JRE, and `golden` takes eleven minutes. Run those before a
+# change that touches what they cover; CI runs all of them regardless.
 quality: lint cover check bench licenses
+	$(MAKE) fuzz FUZZTIME=10s

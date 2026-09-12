@@ -54,9 +54,11 @@ Voraussetzungen:
 
 ## Qualitäts-Harness
 
-`main` ist durch ein Ruleset geschützt: gemergt wird nur, wenn **alle**
-Pflicht-Checks grün sind. Lokal entspricht dem `make quality`; die einzelnen
-Ziele lassen sich auch einzeln laufen.
+`main` ist durch das Ruleset `protect-main` geschützt: gemergt wird nur, wenn
+**alle 18** Pflicht-Checks grün sind. `make quality` deckt davon die Gates ab,
+die nichts außer Go brauchen — **nicht** `sbom` (braucht syft), `codecharta`
+(braucht ccsh und eine JRE) und `golden` (elf Minuten). Diese drei laufen in
+der CI ohnehin; lokal gezielt vor einer Änderung, die sie betrifft.
 
 | Check | Werkzeug | Was er verhindert |
 |---|---|---|
