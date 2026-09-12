@@ -20,8 +20,8 @@ feuern (`Stats.Unreachable`), in `repaired` keine. Der Modus steht in
 
 ## Pre-Merge-Gate
 
-Vor jedem Merge werden **lokal** beide Kommandos ausgeführt, und beide müssen
-grün sein:
+Beide Kommandos laufen inzwischen auch in der CI (siehe Qualitäts-Harness);
+lokal vor dem Push sind sie schneller zu haben:
 
 ```sh
 make check    # Unit-Suite + alle Real-File-Tests gegen die echte Regeldatei
@@ -76,6 +76,7 @@ Ziele lassen sich auch einzeln laufen.
 | Actions Lint | actionlint | Fehler und Script-Injection in den Workflows |
 | Docker Build | Buildx + Smoke-Test | ein Image, das zwar baut, aber unter `--read-only --cap-drop=ALL` nicht antwortet |
 | Docker Security Scan | Trivy | behebbare CRITICAL/HIGH im Image |
+| Golden Master | `make golden` | jede Abweichung von der R-Implementierung — beide Modi, 11.337 Aufnahmen, 642.000 Ausdruckswerte |
 | CodeCharta | ccsh + `scripts/codecharta-ratchet.py` | Komplexitätswachstum je Datei **und** je Funktion; neue komplexe und ungetestete Dateien |
 | commitlint | commitlint | nicht-konventionelle Commits, an denen release-please die Version falsch ableitet |
 
@@ -84,9 +85,12 @@ Nicht bei jedem PR, sondern nach Zeitplan: Fuzzing über zehn Minuten je Ziel
 Änderungen an `internal/esy/`), sowie govulncheck und ein Trivy-Scan des Images
 gegen neu veröffentlichte CVEs (wöchentlich).
 
-`make golden` bleibt bewusst draußen: es braucht R, den Upstream-Klon und rund
-zehn Minuten je Modus. Es ist das **lokale** Pre-Merge-Gate oben — und das
-schärfste, das dieses Projekt hat.
+`make golden` läuft **mit** — als eigener Job. Er braucht nur die vendorierte
+Regeldatei und die eingecheckten Fixtures, beide im Repository; R und der
+Upstream-Klon werden gebraucht, um die Fixtures **neu zu erzeugen**
+(`make fixtures`), nicht um gegen sie zu vergleichen. Die Parität mit der
+R-Implementierung ist die zentrale Aussage dieses Projekts — sie gehört
+abgesichert, nicht geglaubt. Rund elf Minuten je Lauf.
 
 ### Zwei Ausnahmen, die benannt gehören
 

@@ -4,10 +4,11 @@
 # "protect-main"). The ones that need the ESy rule file can run it: the file is
 # vendored under data/esy/ (CC BY 4.0, see data/esy/ATTRIBUTION.md).
 #
-# What deliberately does NOT run here: `make golden`, the two golden masters
-# against the upstream R implementation. They need R, the upstream clone and
-# generated fixtures, and take about ten minutes over 11,337 plots each. They
-# are the local pre-merge gate, run with `make golden`.
+# The golden masters run here too (job "Golden Master"). They need only the
+# vendored rule file and the fixtures, both of which are in the repository — R
+# and the upstream clone are needed to REGENERATE the fixtures (`make
+# fixtures`), not to compare against them. Since parity with the R
+# implementation is this project's central claim, it is gated, not trusted.
 name: CI
 
 on:
@@ -17,8 +18,12 @@ on:
     branches: [main]
 
 env:
-  GO_VERSION: '1.24.4'
-  ESY_FILE: data/esy/EUNIS-ESy-2025-10-03.txt
+  GO_VERSION: '1.26.8'
+
+# ESY_FILE is deliberately NOT set workflow-wide. The Makefile's own default
+# points at the vendored file, and the jobs that want it say so; setting it
+# globally would silently pull the eleven-minute golden master into the
+# race-detector test step.
 
 # Least privilege by default; the jobs that need more (SARIF upload) raise it
 # for themselves.
@@ -75,7 +80,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
           args: --timeout=5m
@@ -107,6 +112,27 @@ jobs:
         with:
           files: ./coverage.out
           fail_ci_if_error: false
+
+  # ===========================================================================
+  # The golden masters: this implementation against the upstream R one over
+  # 11,337 plots, in both semantics, comparing the winning type, the full match
+  # set and every per-expression truth value. It is the claim the whole project
+  # rests on, so it is a gate rather than a local ritual. The fixtures and the
+  # rule file are both in the repository; R is needed only to regenerate them.
+  # ===========================================================================
+  golden:
+    name: Golden Master
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Both golden masters
+        run: make golden
 
   # ===========================================================================
   # Benchmarks. Running them is the gate — they must compile and execute, so
@@ -214,7 +240,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Generate SBOM (SPDX + CycloneDX)
+      - name: Generate SBOM (SPDX)
         uses: anchore/sbom-action@v0
         with:
           path: .
@@ -293,6 +319,8 @@ jobs:
       # against; their staleness guard compares this digest. A silent edit
       # would invalidate every verification claim the project makes.
       - name: Vendored rule file is unmodified
+        env:
+          ESY_FILE: data/esy/EUNIS-ESy-2025-10-03.txt
         run: |
           want=$(cat testdata/golden/rulepack.sha256)
           got=$(sha256sum "$ESY_FILE" | cut -d' ' -f1)
@@ -457,7 +485,7 @@ jobs:
           tags: habitatus:scan
 
       - name: Trivy scan (SARIF, informational)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: 'habitatus:scan'
           format: 'sarif'
@@ -474,7 +502,7 @@ jobs:
       # no upstream fix cannot be acted on in a PR, so they stay in the
       # Security tab rather than blocking every merge.
       - name: Fail on fixable CRITICAL/HIGH
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: 'habitatus:scan'
           format: 'table'
