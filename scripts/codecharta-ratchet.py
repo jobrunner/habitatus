@@ -153,7 +153,17 @@ def main():
     hints += h
 
     # 2. Hotspots (complex AND under-tested). Files without coverage data are skipped
-    # (can't assess — e.g. cmd tools not exercised by unit tests).
+    # (can't assess — e.g. cmd tools not exercised by unit tests). But if NO file
+    # has coverage — the coverage import failed, or ccsh changed the attribute
+    # name — the whole gate would quietly do nothing while still reporting OK.
+    # Same reasoning as the cap-metric guard above: refuse to pass vacuously.
+    if not any(a.get("line_coverage") is not None for a in files.values()):
+        print("::error::no file in the map carries 'line_coverage' — the coverage "
+              "import did not land, so the hotspot gate would pass vacuously. "
+              "Check the coverage step (a failing test suite is the usual cause).",
+              file=sys.stderr)
+        return 2
+
     for rel, attrs in sorted(files.items()):
         val = attrs.get(metric)
         cov = attrs.get("line_coverage")

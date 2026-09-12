@@ -62,8 +62,11 @@ jobs:
 
       - name: Coverage into the map (best effort)
         run: |
-          # A test failure is the Test job's business, not this one's; it must
-          # not sink the map. Import coverage only if a profile was produced.
+          # A test failure is the Test job's business, not this one's, so it
+          # must not sink the MAP. It does, however, sink this job at the
+          # ratchet step: without coverage the hotspot gate has nothing to
+          # judge, and the script refuses to pass vacuously rather than
+          # report a green gate that checked nothing.
           go test -coverprofile=build/cc.out ./... || true
           if [ -s build/cc.out ]; then
             gcov2lcov -infile=build/cc.out -outfile=build/coverage.info
