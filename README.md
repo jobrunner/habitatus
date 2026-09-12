@@ -38,8 +38,11 @@ Rundungsfehler. Einzeln laufen die Hälften mit `make golden-faithful` bzw.
 
 Voraussetzungen:
 
-- `ESY_FILE` — Pfad zur ESy-Regeldatei. Sie liegt nicht in diesem Repository
-  und darf von uns nicht weitergegeben werden. Default siehe `Makefile`.
+- `ESY_FILE` — Pfad zur ESy-Regeldatei. Sie liegt derzeit nicht in diesem
+  Repository; Default siehe `Makefile`. Weitergabe ist erlaubt: der
+  Zenodo-Record doi:10.5281/zenodo.3841729 steht in allen drei Versionen
+  (2020-06-08, 2021-06-01, 2025-10-03) unter **CC BY 4.0** bei offenem Zugang,
+  verlangt also nur Namensnennung.
 - Für `make fixtures` zusätzlich eine R-Installation und der Upstream-Klon
   unter `spike/ESy-upstream`. Die Fixtures unter `testdata/golden/` und
   `testdata/golden-repaired/` sind eingecheckt; neu erzeugt werden sie nur,
