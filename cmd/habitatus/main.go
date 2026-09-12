@@ -33,17 +33,65 @@ var (
 	commit  = "unknown"
 )
 
-func main() {
-	addr := flag.String("addr", ":8080", "listen address")
-	rulesPath := flag.String("rules", "", "path to the ESy rule file")
-	backbonesPath := flag.String("backbones", "", "path to the directory of nomenclature translation tables (optional)")
-	mcp := flag.Bool("mcp", false, "serve MCP over stdio instead of HTTP")
-	modeName := flag.String("mode", esy.Repaired.String(),
+// config holds everything main needs after flags and environment are
+// resolved. Kept separate from flag.FlagSet so resolveConfig is callable
+// from a test without starting a server or touching the real environment.
+type config struct {
+	addr          string
+	rulesPath     string
+	backbonesPath string
+	modeName      string
+	mcp           bool
+}
+
+// resolveConfig applies -addr/-rules/-backbones/-mode/-mcp with the
+// precedence a container operator expects: an explicit flag beats the
+// matching environment variable, which beats the built-in default. This is
+// what lets `docker run habitatus -mode faithful` work at all — with the
+// old plain CMD-array defaults, passing any argument replaced the whole
+// CMD, including -rules and -addr, and the container exited on "missing
+// -rules". Environment variables live outside CMD and survive that.
+func resolveConfig(env func(string) string, args []string) (config, error) {
+	envOrDefault := func(key, def string) string {
+		if v := env(key); v != "" {
+			return v
+		}
+		return def
+	}
+
+	fs := flag.NewFlagSet("habitatus", flag.ContinueOnError)
+	addr := fs.String("addr", envOrDefault("HABITATUS_ADDR", ":8080"), "listen address")
+	rulesPath := fs.String("rules", envOrDefault("HABITATUS_RULES", ""), "path to the ESy rule file")
+	backbonesPath := fs.String("backbones", envOrDefault("HABITATUS_BACKBONES", ""),
+		"path to the directory of nomenclature translation tables (optional)")
+	mcp := fs.Bool("mcp", false, "serve MCP over stdio instead of HTTP")
+	modeName := fs.String("mode", envOrDefault("HABITATUS_MODE", esy.Repaired.String()),
 		"evaluation semantics: "+strings.Join(esy.ModeNames(), "|")+
 			" (repaired evaluates the expressions ESy v1.2 forces to FALSE by "+
 			"coercing their numeric value, as R did up to v1.1; faithful "+
 			"reproduces v1.2 as shipped)")
-	flag.Parse()
+
+	if err := fs.Parse(args); err != nil {
+		return config{}, err
+	}
+
+	return config{
+		addr:          *addr,
+		rulesPath:     *rulesPath,
+		backbonesPath: *backbonesPath,
+		modeName:      *modeName,
+		mcp:           *mcp,
+	}, nil
+}
+
+func main() {
+	cfg, err := resolveConfig(os.Getenv, os.Args[1:])
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			os.Exit(0)
+		}
+		os.Exit(2)
+	}
 
 	// Logging always goes to stderr, never stdout. In -mcp mode stdout is
 	// the JSON-RPC transport; even one stray log line on stdout before the
@@ -52,18 +100,25 @@ func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	log.Info("habitatus starting", "version", version, "commit", commit)
 
-	if *rulesPath == "" {
-		log.Error("missing -rules")
+	if cfg.rulesPath == "" {
+		log.Error("missing -rules (or HABITATUS_RULES)")
 		os.Exit(2)
 	}
 
-	mode, err := esy.ParseMode(*modeName)
+	mode, err := esy.ParseMode(cfg.modeName)
 	if err != nil {
-		log.Error("invalid -mode", "err", err)
+		log.Error("invalid -mode (or HABITATUS_MODE)", "err", err)
 		os.Exit(2)
 	}
 
-	if err := run(log, *addr, *rulesPath, *backbonesPath, *mcp, mode); err != nil {
+	// Logged so an operator reading the startup log after the fact can see
+	// exactly which rule file and mode a run resolved to, regardless of
+	// whether that came from a flag, an environment variable, or the
+	// built-in default.
+	log.Info("configuration resolved",
+		"addr", cfg.addr, "rules", cfg.rulesPath, "backbones", cfg.backbonesPath, "mode", cfg.modeName)
+
+	if err := run(log, cfg.addr, cfg.rulesPath, cfg.backbonesPath, cfg.mcp, mode); err != nil {
 		log.Error("habitatus exited with an error", "err", err)
 		os.Exit(1)
 	}

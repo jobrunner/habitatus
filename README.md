@@ -38,11 +38,12 @@ Rundungsfehler. Einzeln laufen die Hälften mit `make golden-faithful` bzw.
 
 Voraussetzungen:
 
-- `ESY_FILE` — Pfad zur ESy-Regeldatei. Sie liegt derzeit nicht in diesem
-  Repository; Default siehe `Makefile`. Weitergabe ist erlaubt: der
-  Zenodo-Record doi:10.5281/zenodo.3841729 steht in allen drei Versionen
-  (2020-06-08, 2021-06-01, 2025-10-03) unter **CC BY 4.0** bei offenem Zugang,
-  verlangt also nur Namensnennung.
+- `ESY_FILE` — Pfad zur ESy-Regeldatei. Sie liegt unter `data/esy/` in
+  diesem Repository; der `Makefile`-Default zeigt darauf, überschreibbar für
+  eine andere Version. Weitergabe ist erlaubt: der Zenodo-Record
+  doi:10.5281/zenodo.3841729 steht in allen drei Versionen (2020-06-08,
+  2021-06-01, 2025-10-03) unter **CC BY 4.0** bei offenem Zugang, verlangt
+  also nur Namensnennung — siehe `data/esy/ATTRIBUTION.md`.
 - Für `make fixtures` zusätzlich eine R-Installation und der Upstream-Klon
   unter `spike/ESy-upstream`. Die Fixtures unter `testdata/golden/` und
   `testdata/golden-repaired/` sind eingecheckt; neu erzeugt werden sie nur,
@@ -53,8 +54,47 @@ Voraussetzungen:
 
 ## CI
 
-Die GitHub-Action (`.github/workflows/ci.yml`) führt nur den Teil aus, der ohne
-externe Daten auskommt: `go build ./...`, `go vet ./...`, eine
-`gofmt -l .`-Prüfung und `go test ./...`. Die Tests hinter `ESY_FILE` sowie der
-Golden Master laufen dort **nicht** — die Regeldatei ist nicht öffentlich. Dafür
-ist das lokale Pre-Merge-Gate oben zuständig.
+Die GitHub-Action (`.github/workflows/ci.yml`) führt `go build ./...`,
+`go vet ./...`, eine `gofmt -l .`-Prüfung, `go test ./...` und `make check`
+aus — die `ESY_FILE`-gegateten Real-File-Tests laufen dort jetzt mit, weil die
+Regeldatei vendoriert ist. Nur `make golden` bleibt draußen: es braucht
+zusätzlich R und den Upstream-Klon und dauert rund zehn Minuten. Dafür ist
+das lokale Pre-Merge-Gate oben zuständig.
+
+## Container
+
+```sh
+make docker-build      # baut habitatus:<version> und habitatus:latest
+make docker-run        # startet es gehärtet: --read-only --cap-drop=ALL
+                        # --security-opt=no-new-privileges, Port 8080 gemappt
+```
+
+oder von Hand:
+
+```sh
+docker run --rm -p 8080:8080   --read-only --cap-drop=ALL --security-opt=no-new-privileges   habitatus:latest
+```
+
+Das Image enthält die vendorierte Regeldatei unter einem festen Pfad und
+läuft ohne weitere Argumente. Defaults kommen aus Umgebungsvariablen
+(`HABITATUS_ADDR`, `HABITATUS_RULES`, `HABITATUS_BACKBONES`,
+`HABITATUS_MODE`), nicht aus `CMD` — Docker ersetzt das ganze `CMD`-Array,
+sobald `docker run` irgendein Argument bekommt, und ein `CMD`, das `-addr`
+und `-rules` trägt, wäre dann verschwunden. Ein Flag überschreibt die
+gleichnamige Umgebungsvariable, die wiederum den eingebauten Default
+überschreibt:
+
+```sh
+# beide Wege setzen faithful; beide behalten -rules/-addr aus der ENV
+docker run --rm -p 8080:8080 habitatus:latest -mode faithful
+docker run --rm -p 8080:8080 -e HABITATUS_MODE=faithful habitatus:latest
+```
+
+Wer eine andere Regelwerksversion mounten will, setzt `-rules` bzw.
+`HABITATUS_RULES` auf den gemounteten Pfad. Der Container läuft als
+`nonroot` (uid 65532) — eine gemountete Datei muss für dieses uid lesbar
+sein, sonst scheitert der Start sichtbar mit einer Fehlermeldung, die die
+Datei nennt.
+
+Kein `HEALTHCHECK`: das Image hat weder Shell noch `curl`. Orchestratoren
+sollen stattdessen direkt gegen `GET /health/ready` prüfen.

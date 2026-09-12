@@ -38,7 +38,24 @@ COPY data/esy/ATTRIBUTION.md /data/esy/ATTRIBUTION.md
 # tables are read once at startup and everything after that is in-memory —
 # so the image runs cleanly under --read-only with no tmpfs mount needed.
 
+# Defaults live in the environment, not in CMD. Docker replaces the whole
+# CMD array as soon as a caller passes any argument, so a CMD of
+# ["-addr", ":8080", "-rules", "/data/esy/..."] would silently vanish behind
+# `docker run habitatus -mode faithful` -- the container would then exit 2
+# on "missing -rules", the most obvious invocation being the one that
+# breaks. cmd/habitatus reads HABITATUS_ADDR/HABITATUS_RULES/
+# HABITATUS_BACKBONES/HABITATUS_MODE as defaults, with a flag of the same
+# name overriding when given, so both `docker run habitatus -mode faithful`
+# and `docker run -e HABITATUS_MODE=faithful habitatus` work. CMD stays
+# empty; there is nothing left for it to carry.
+ENV HABITATUS_ADDR=:8080
+ENV HABITATUS_RULES=/data/esy/EUNIS-ESy-2025-10-03.txt
+
 EXPOSE 8080
+# Runs as uid 65532 (nonroot). A rule file or backbone directory mounted in
+# at runtime -- to override HABITATUS_RULES/HABITATUS_BACKBONES -- must be
+# readable by that uid, not just by the host user who owns it; e.g.
+# `docker run -v $PWD/other.txt:/rules.txt:ro,z --read-only ...` needs the
+# file world- or 65532-readable, or `--user "$(id -u):$(id -g)"` to match.
 USER nonroot:nonroot
 ENTRYPOINT ["/habitatus"]
-CMD ["-addr", ":8080", "-rules", "/data/esy/EUNIS-ESy-2025-10-03.txt"]
