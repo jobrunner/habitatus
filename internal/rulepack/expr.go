@@ -50,6 +50,31 @@ func ParseExpr(s string) (Expr, error) {
 		applySCExcept(&e)
 	}
 	e.AlwaysFalse = isAlwaysFalse(s)
+	if e.AlwaysFalse && op != "" {
+		// The glued-operator shape ("#TC Cliff-ferns GR05"). Upstream splits
+		// expressions into conditions on the SPACED operators only, so this
+		// one is never split: the whole text, operator and all, is ONE
+		// condition, and the group name it looks up is "Cliff-ferns GR05" —
+		// substr(condition, 5, nchar(condition)) — which matches no group,
+		// so the condition's value stays at plot.cond's zero default for
+		// every plot (step3and5…R:113-122; fmatch returns NA, groups[[NA]]
+		// is NULL, and nothing is written back).
+		//
+		// The parser must therefore not act on the operator it found here,
+		// or the two modes would part company over more than the coercion:
+		// in repaired mode this expression would become "the group has any
+		// cover" instead of the constant FALSE that R computes. Reparsing
+		// the whole text as a single operand reproduces R's zero for the
+		// same reason R gets it — an unresolvable name resolving to an
+		// empty member set. The missing space stays a defect of the rule
+		// file in both modes; we reproduce it rather than guess at the
+		// threshold of 5 % that was presumably meant.
+		whole, err := parseOperand(s, false)
+		if err != nil {
+			return Expr{}, fmt.Errorf("%q as a single condition: %w", s, err)
+		}
+		e.Left, e.Op, e.Right = whole, "", Operand{}
+	}
 	return e, nil
 }
 

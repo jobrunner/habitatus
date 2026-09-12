@@ -93,11 +93,13 @@ func TestParseExpr(t *testing.T) {
 			},
 		},
 		{
+			// The glued operator is NOT acted on: upstream never splits this
+			// expression, so the whole text is one condition and the group
+			// name it looks up is "Cliff-ferns GR05", which matches nothing.
+			// See ParseExpr.
 			in: "#TC Cliff-ferns GR05",
 			want: Expr{
-				Left:  Operand{Atoms: []Atom{{Kind: "#TC", Name: "Cliff-ferns"}}},
-				Op:    "GR",
-				Right: Operand{Literal: "05"},
+				Left: Operand{Atoms: []Atom{{Kind: "#TC", Name: "Cliff-ferns GR05"}}},
 			},
 		},
 	}
