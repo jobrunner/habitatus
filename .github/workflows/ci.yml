@@ -1,54 +1,484 @@
-name: CI
-
-# The ESy rule file is now vendored (data/esy/, CC BY 4.0 — see
-# data/esy/ATTRIBUTION.md), so `make check` runs here too: build, vet,
-# formatting, the unit suite, and the real-file tests gated behind ESY_FILE
-# (internal/rulepack and internal/classify).
+# CI pipeline for habitatus.
 #
-# `make golden` still does not run here. It needs both R and the upstream
-# clone (spike/ESy-upstream) — neither is available in this environment —
-# and takes about ten minutes to compare 11,337 plots against the R oracle
-# for both evaluation modes. That command is run locally before a merge; see
-# the "Pre-Merge-Gate" section of README.md.
+# Every job here is a required check on main (see the repository ruleset
+# "protect-main"). The ones that need the ESy rule file can run it: the file is
+# vendored under data/esy/ (CC BY 4.0, see data/esy/ATTRIBUTION.md).
+#
+# What deliberately does NOT run here: `make golden`, the two golden masters
+# against the upstream R implementation. They need R, the upstream clone and
+# generated fixtures, and take about ten minutes over 11,337 plots each. They
+# are the local pre-merge gate, run with `make golden`.
+name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
 
+env:
+  GO_VERSION: '1.24.4'
+  ESY_FILE: data/esy/EUNIS-ESy-2025-10-03.txt
+
+# Least privilege by default; the jobs that need more (SARIF upload) raise it
+# for themselves.
 permissions:
   contents: read
 
 jobs:
-  build:
+  # ===========================================================================
+  # Version. release-please owns VERSION and CHANGELOG.md; this job only checks
+  # that what it produced is well-formed.
+  # ===========================================================================
+  version:
+    name: Validate Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate VERSION file
+        id: version
+        run: |
+          if [[ ! -f VERSION ]]; then
+            echo "::error::VERSION file not found"
+            exit 1
+          fi
+          VERSION=$(head -n1 VERSION | awk '{print $1}')
+          SEMVER='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
+          if [[ ! "$VERSION" =~ $SEMVER ]]; then
+            echo "::error::invalid version format: '$VERSION' (expected MAJOR.MINOR.PATCH)"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: CHANGELOG mentions this version or an Unreleased section
+        run: |
+          VERSION=$(head -n1 VERSION | awk '{print $1}')
+          if ! grep -q "\[$VERSION\]" CHANGELOG.md && ! grep -q "\[Unreleased\]" CHANGELOG.md; then
+            echo "::warning::version $VERSION is not mentioned in CHANGELOG.md"
+          fi
+
+  # ===========================================================================
+  # Lint. Also the architecture gate: the depguard rules in .golangci.yml
+  # encode the import direction the design spec describes, so a layering
+  # violation fails here rather than being noticed a year later.
+  # ===========================================================================
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
-          check-latest: true
+          go-version: ${{ env.GO_VERSION }}
+
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.12.2
+          args: --timeout=5m
+
+  # ===========================================================================
+  # Tests, including the real-file tests against the vendored rule file, plus
+  # the per-package coverage ratchet.
+  # ===========================================================================
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Unit tests (race, coverage)
+        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Real-file tests against the vendored rule file
+        run: make check
+
+      - name: Coverage floors (ratchet)
+        run: ./scripts/coverage-gate.sh coverage.out
+
+      - uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.out
+          fail_ci_if_error: false
+
+  # ===========================================================================
+  # Benchmarks. Running them is the gate — they must compile and execute, so
+  # they cannot bit-rot. Timing is NOT gated: shared runners are too noisy for
+  # a per-PR threshold. The benchstat delta goes to the job summary instead.
+  # ===========================================================================
+  bench:
+    name: Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Benchmarks (this branch)
+        run: make bench BENCHCOUNT=6 | tee new.txt
+
+      - name: Benchmarks (base) and benchstat delta
+        if: github.event_name == 'pull_request'
+        run: |
+          go install golang.org/x/perf/cmd/benchstat@latest
+          # new.txt and old.txt are untracked, so they survive the checkouts.
+          git checkout --quiet "${{ github.event.pull_request.base.sha }}"
+          make bench BENCHCOUNT=6 > old.txt 2>/dev/null || echo "base: no comparable benchmarks" > old.txt
+          git checkout --quiet -
+          {
+            echo '### Benchmark delta (base to PR)'
+            echo '```'
+            benchstat old.txt new.txt 2>&1 || echo "no comparable results"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ===========================================================================
+  # Fuzzing (short). The rule file is third-party input and the parsers that
+  # read it must never panic — a panic there is a start-up crash with no
+  # diagnosis. A longer nightly run lives in fuzz.yml.
+  # ===========================================================================
+  fuzz:
+    name: Fuzz (smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Fuzz the rule-file parsers
+        run: make fuzz FUZZTIME=30s
+
+  # ===========================================================================
+  # Go vulnerability scanning.
+  # ===========================================================================
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+  # ===========================================================================
+  # Licence compliance. The core has no third-party dependencies at all; this
+  # gate exists so that the first one to be added cannot slip in under a
+  # copyleft or unknown licence unnoticed.
+  # ===========================================================================
+  licenses:
+    name: License Compliance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Check dependency licences
+        run: |
+          go install github.com/google/go-licenses@latest
+          make licenses
+
+  # ===========================================================================
+  # SBOM. Generated for every PR in both formats consumers ask for, published
+  # as an artifact, and scanned. The release image carries its own SBOM
+  # attestation (see docker-release.yml).
+  # ===========================================================================
+  sbom:
+    name: SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Generate SBOM (SPDX + CycloneDX)
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: sbom.spdx.json
+          upload-artifact: false
+
+      - name: Generate SBOM (CycloneDX)
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: sbom.cyclonedx.json
+          upload-artifact: false
+
+      - name: Scan the SBOM for known vulnerabilities
+        uses: anchore/scan-action@v5
+        with:
+          sbom: sbom.spdx.json
+          severity-cutoff: high
+          fail-build: true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: |
+            sbom.spdx.json
+            sbom.cyclonedx.json
+
+  # ===========================================================================
+  # Secret scanning over the commit range of the event.
+  # ===========================================================================
+  secret-scan:
+    name: Secret Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gitleaks diffs the scanned commit range
+
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ===========================================================================
+  # Architecture and hygiene gates that are not linter rules.
+  # The import boundaries themselves are enforced by depguard in the Lint job.
+  # ===========================================================================
+  architecture:
+    name: Architecture
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: go.mod tidiness
+        run: go mod tidy -diff
+
+      # The design spec commits the service to the standard library alone: no
+      # third-party code evaluates the rules. A dependency added here is a
+      # decision, not a convenience, and must be argued in the PR.
+      - name: No third-party dependencies
+        run: |
+          if grep -qE '^\s*require' go.mod; then
+            echo "::error file=go.mod::habitatus is standard-library only; adding a dependency needs an explicit decision in the PR description"
+            grep -nE '^\s*require' go.mod
+            exit 1
+          fi
+          echo "go.mod declares no dependencies, as intended"
+
+      # The vendored rule file is what both golden masters were generated
+      # against; their staleness guard compares this digest. A silent edit
+      # would invalidate every verification claim the project makes.
+      - name: Vendored rule file is unmodified
+        run: |
+          want=$(cat testdata/golden/rulepack.sha256)
+          got=$(sha256sum "$ESY_FILE" | cut -d' ' -f1)
+          if [ "$want" != "$got" ]; then
+            echo "::error file=$ESY_FILE::rule file digest $got does not match the golden master's $want"
+            exit 1
+          fi
+          echo "rule file digest matches the golden masters"
+
+  # ===========================================================================
+  # Build
+  # ===========================================================================
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [lint, test, version]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
 
       - name: Build
-        run: go build ./...
+        run: go build -v ./cmd/habitatus
 
-      - name: Vet
-        run: go vet ./...
-
-      - name: Format
-        # gofmt -l prints the unformatted files and still exits 0, so the
-        # output itself has to be turned into the failure.
+      - name: gofmt
         run: |
-          unformatted=$(gofmt -l .)
+          unformatted=$(gofmt -l . | grep -v '^vendor/' || true)
           if [ -n "$unformatted" ]; then
-            echo "gofmt reports unformatted files:"
-            echo "$unformatted"
+            echo "::error::gofmt would change: $unformatted"
             exit 1
           fi
 
-      - name: Test
-        run: go test ./...
+  # ===========================================================================
+  # Dockerfile linting
+  # ===========================================================================
+  docker-lint:
+    name: Docker Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Check (real-file tests against the vendored rule file)
-        run: make check
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          failure-threshold: error
+
+  # ===========================================================================
+  # Workflow linting. actionlint catches workflow bugs and script injection
+  # through untrusted github.event fields.
+  # ===========================================================================
+  actions-lint:
+    name: Actions Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: actionlint
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash \
+            | bash -s -- 1.7.7
+          ./actionlint -color -shellcheck="-S error"
+
+      # A version tag written into a comment is a pin Dependabot will never
+      # update — it only touches the real `uses:` line — so it drifts silently.
+      - name: No action versions in workflow comments
+        run: |
+          matches=$(grep -rnE '(^|[[:space:]])#.*@v[0-9]' .github/workflows/) && rc=0 || rc=$?
+          if [ "$rc" = 0 ]; then
+            echo "$matches"
+            echo "::error::an action version is pinned in a comment; keep it only on the 'uses:' line Dependabot manages"
+            exit 1
+          elif [ "$rc" != 1 ]; then
+            echo "::error::drift guard: grep failed with status $rc"
+            exit "$rc"
+          fi
+
+  # ===========================================================================
+  # Container build, then a real smoke test under the hardening the README
+  # documents: read-only root, no capabilities, no privilege escalation. A
+  # container that builds but cannot answer is not a passing build.
+  # ===========================================================================
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: [docker-lint, build]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: habitatus:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test the hardened container
+        run: |
+          docker run -d --name habitatus-ci -p 8080:8080 \
+            --read-only --cap-drop=ALL --security-opt=no-new-privileges \
+            habitatus:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8080/health/ready >/dev/null 2>&1; then break; fi
+            if [ "$i" = 30 ]; then
+              echo "::error::the container never became ready"
+              docker logs habitatus-ci
+              exit 1
+            fi
+            sleep 1
+          done
+          # A relevé whose answer we know: dry sandy grassland, R1P in the
+          # default repaired mode. This is the assertion that the image
+          # actually classifies, not merely that it starts.
+          got=$(curl -fsS -X POST http://localhost:8080/api/v1/classify \
+            -H 'content-type: application/json' \
+            -d '{"backbone":"euro+med","records":[
+                  {"name":"Festuca ovina","cover":30},
+                  {"name":"Potentilla argentea","cover":10},
+                  {"name":"Dianthus deltoides","cover":5},
+                  {"name":"Viola tricolor aggr.","cover":3}],
+                 "header":{"Country":"Germany","Coast_EEA":"N_COAST","Dunes_Bohn":"N_DUNES",
+                  "Ecoreg":"664","Altitude (m)":"1","DEG_LAT":"53.06","DEG_LON":"10.6"}}')
+          echo "$got"
+          if ! echo "$got" | grep -q '"result":"R1P"'; then
+            echo "::error::expected result R1P from the smoke-test plot"
+            docker logs habitatus-ci
+            exit 1
+          fi
+          docker rm -f habitatus-ci
+
+  # ===========================================================================
+  # Container vulnerability scanning.
+  # ===========================================================================
+  docker-security:
+    name: Docker Security Scan
+    runs-on: ubuntu-latest
+    needs: [docker-lint]
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image for scanning
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: habitatus:scan
+
+      - name: Trivy scan (SARIF, informational)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: 'habitatus:scan'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy results to the Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      # The gate: fail on CRITICAL/HIGH that actually have a fix. Findings with
+      # no upstream fix cannot be acted on in a PR, so they stay in the
+      # Security tab rather than blocking every merge.
+      - name: Fail on fixable CRITICAL/HIGH
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: 'habitatus:scan'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+          exit-code: '1'
+          skip-setup-trivy: true

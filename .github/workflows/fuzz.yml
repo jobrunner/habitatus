@@ -1,0 +1,48 @@
+# Nightly fuzzing of the rule-file parsers. The CI job runs 30 seconds per
+# target as a smoke test; this one runs long enough to find the inputs a smoke
+# test never reaches. A crash is committed as a seed corpus entry by whoever
+# triages it, so the CI job then covers it forever.
+name: Fuzz
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      fuzztime:
+        description: 'Duration per target'
+        required: false
+        default: '10m'
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: Fuzz
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [FuzzParseExpr, FuzzParseFormula, FuzzSplitSections, FuzzLoad]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.4'
+
+      - name: Fuzz ${{ matrix.target }}
+        run: |
+          go test -run '^$' -fuzz '${{ matrix.target }}' \
+            -fuzztime='${{ github.event.inputs.fuzztime || '10m' }}' \
+            ./internal/rulepack/
+
+      - name: Upload the crashing corpus, if any
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-corpus-${{ matrix.target }}
+          path: internal/rulepack/testdata/fuzz/
+          if-no-files-found: ignore

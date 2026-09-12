@@ -1,0 +1,30 @@
+version: 2
+updates:
+  # The module itself has no dependencies (the Architecture job enforces that),
+  # but the directive still catches a toolchain bump.
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "ci(deps)"
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "build(deps)"

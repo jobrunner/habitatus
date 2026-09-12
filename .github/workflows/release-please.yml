@@ -1,0 +1,43 @@
+# Release automation. release-please reads the Conventional Commits since the
+# last release and maintains a release PR that bumps VERSION and cuts the
+# versioned section of CHANGELOG.md; merging that PR tags vX.Y.Z and creates
+# the GitHub Release.
+#
+# Requires two repository secrets, RELEASE_PLEASE_APP_ID and
+# RELEASE_PLEASE_APP_KEY, from a GitHub App with Contents and Pull requests
+# read/write. The default GITHUB_TOKEN would work for creating the PR, but
+# GitHub's loop prevention means its pushes never trigger workflows — the
+# release PR would then sit permanently blocked at "0 of N checks" against the
+# required-status-check ruleset on main.
+name: release-please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.rp.outputs.release_created }}
+      tag_name: ${{ steps.rp.outputs.tag_name }}
+    steps:
+      - name: Mint GitHub App installation token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_APP_KEY }}
+
+      - id: rp
+        uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          token: ${{ steps.app-token.outputs.token }}
