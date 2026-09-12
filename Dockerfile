@@ -3,7 +3,10 @@
 # Stage 1: static build. CGO_ENABLED=0 so the binary has no dynamic
 # dependency on libc — required for it to run on the distroless base below,
 # which carries no shared libraries at all.
-FROM golang:1.24 AS build
+# Pinned to a patch level, not a floating minor tag. The 1.24 line is out of
+# security support: govulncheck reports standard-library vulnerabilities
+# against 1.24.13, its last release, that are fixed only from 1.25.13 on.
+FROM golang:1.26.8 AS build
 WORKDIR /src
 
 ARG VERSION=dev

@@ -20,7 +20,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.24.4'
+          go-version: '1.26.8'
 
       - name: govulncheck
         run: |
@@ -48,7 +48,7 @@ jobs:
           tags: habitatus:scan
 
       - name: Trivy scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: 'habitatus:scan'
           format: 'sarif'
