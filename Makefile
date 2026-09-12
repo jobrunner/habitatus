@@ -1,5 +1,9 @@
 UPSTREAM ?= spike/ESy-upstream
-ESY_FILE ?= $(HOME)/work/projects/eunis/EUNIS-ESy/EUNIS-ESy-2025-10-03.txt
+# The vendored copy under data/esy/ — CC BY 4.0, see data/esy/ATTRIBUTION.md.
+# Override to run against a different rule-file version; its checksum must
+# then match what testdata/golden{,-repaired}/rulepack.sha256 expect, or the
+# golden masters' staleness guard refuses to run.
+ESY_FILE ?= $(CURDIR)/data/esy/EUNIS-ESy-2025-10-03.txt
 GOLDEN   ?= testdata/golden
 
 # The repaired oracle: a patched COPY of the upstream tree (see
