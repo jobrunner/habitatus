@@ -16,6 +16,12 @@ concurrency:
   group: docker-release-${{ github.ref }}
   cancel-in-progress: false
 
+# The per-arch candidate tags carry the run id. Without it two releases
+# running at once would write the same `ci-amd64` / `ci-arm64` tags — the
+# concurrency group is keyed by ref, so it does not prevent that — and one
+# run could merge the other's architecture into a manifest that mixes two
+# commits under a single release tag.
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
@@ -63,7 +69,7 @@ jobs:
           file: Dockerfile
           platforms: linux/${{ matrix.arch }}
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:ci-${{ matrix.arch }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:ci-${{ github.run_id }}-${{ matrix.arch }}
           build-args: |
             VERSION=${{ needs.version.outputs.version }}
             COMMIT=${{ github.sha }}
@@ -104,10 +110,10 @@ jobs:
 
       - name: Merge the per-arch candidates into one manifest
         run: |
-          src="${REGISTRY}/${IMAGE_NAME}"
+          src="${REGISTRY}/${IMAGE_NAME}:ci-${{ github.run_id }}"
           for tag in $(echo "${{ steps.meta.outputs.tags }}"); do
             docker buildx imagetools create -t "$tag" \
-              "${src}:ci-amd64" "${src}:ci-arm64"
+              "${src}-amd64" "${src}-arm64"
           done
 
       - name: Sign the manifest

@@ -8,12 +8,15 @@ title = "habitatus gitleaks config"
 [extend]
 useDefault = true
 
+# Only the two DATA directories are exempt, and for one concrete reason: the
+# vendored rule file is 165,260 lines of taxon names and codes, some of which
+# trip entropy rules, and the golden-master fixtures are generated from it.
+# Prose is NOT exempt — allowlisting README, CHANGELOG and docs/ wholesale
+# would disable every rule for them, so a credential pasted into a document
+# would pass a gate that claims to catch exactly that.
 [allowlist]
-description = "Vendored rule data, fixtures and prose. Test SOURCE files stay scanned — only data directories are exempt."
+description = "The vendored rule file and the fixtures generated from it. Everything else, including all source and all prose, is scanned."
 paths = [
   '''(^|/)testdata/''',
   '''(^|/)data/esy/''',
-  '''README\.md''',
-  '''CHANGELOG\.md''',
-  '''docs/.*\.md''',
 ]
