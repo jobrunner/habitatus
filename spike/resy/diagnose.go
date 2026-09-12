@@ -8,7 +8,10 @@
 //	go run spike/resy/diagnose.go plot <id> <rule> per-expression truth values,
 //	                                               ours next to R's
 //
-// It reads testdata/golden/ and $ESY_FILE. This is a debugging aid for the
+// It reads $ESY_FILE and, by default, the faithful fixture set in
+// testdata/golden/. Set HABITATUS_MODE=repaired to diagnose the other golden
+// master instead: that switches both the fixture directory and the evaluation
+// semantics, which have to move together. This is a debugging aid for the
 // golden master, not part of the build.
 package main
 
@@ -26,7 +29,22 @@ import (
 	"github.com/jobrunner/habitatus/internal/taxa"
 )
 
-const dir = "testdata/golden"
+// dir and evalMode are chosen together: a fixture set is only comparable
+// against the semantics its oracle implemented.
+var dir, evalMode = fixtures()
+
+func fixtures() (string, esy.Mode) {
+	name := os.Getenv("HABITATUS_MODE")
+	if name == "" {
+		name = esy.Faithful.String()
+	}
+	mode, err := esy.ParseMode(name)
+	must(err)
+	if mode == esy.Repaired {
+		return "testdata/golden-repaired", mode
+	}
+	return "testdata/golden", mode
+}
 
 type kase struct {
 	ID      int `json:"id"`
@@ -63,7 +81,8 @@ func main() {
 		os.Exit(2)
 	}
 	pack := load()
-	env := esy.Env{Groups: pack.Groups}
+	env := esy.Env{Groups: pack.Groups, Mode: evalMode}
+	fmt.Fprintf(os.Stderr, "diagnosing %s against %s\n", evalMode, dir)
 	exp := map[int]expect{}
 	each("expected.jsonl", func(b []byte) {
 		var e expect

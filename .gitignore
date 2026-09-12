@@ -4,3 +4,7 @@
 # Upstream-Referenz (R-Implementierung), nicht vendorn
 spike/ESy-upstream/
 spike/ESy-upstream
+
+# Patched copy of the upstream tree, built by spike/resy/patch-upstream.sh to
+# generate the repaired golden master. Derived, never edited by hand.
+build/

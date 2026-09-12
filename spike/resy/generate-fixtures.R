@@ -1,15 +1,30 @@
-# Drives the upstream ESy implementation (v1.2) to produce golden-master
-# fixtures for habitatus. The upstream tree is never modified: this script
-# only sources its code and reads the objects it leaves behind.
+# Drives the upstream ESy implementation to produce golden-master fixtures for
+# habitatus. The upstream tree is never modified: this script only sources its
+# code and reads the objects it leaves behind.
 #
 # Usage:
 #   Rscript spike/resy/generate-fixtures.R <upstream-dir> <esy-file> <out-dir>
+#
+# It generates whichever of the two oracles the <upstream-dir> it is pointed
+# at implements:
+#
+#   spike/ESy-upstream            v1.2 as shipped        -> testdata/golden
+#   build/ESy-upstream-repaired   step 8 coercion active -> testdata/golden-repaired
+#
+# The second is produced by spike/resy/patch-upstream.sh, which copies the
+# upstream tree and swaps the two lines of step 8. This script detects which
+# of the two it is running and records it as "mode" in meta.json, so a fixture
+# set can never be mistaken for the other one's.
 #
 # Optional environment variables:
 #   HABITATUS_SYNTHETIC  path to a JSONL file of synthetic plots (see
 #                        spike/resy/synthesize.go). Its plots are appended to
 #                        the Tuexen-Archiv plots and run through the same
 #                        upstream pipeline.
+#   HABITATUS_UPSTREAM_COMMIT
+#                        the upstream commit the tree corresponds to. Needed
+#                        for the patched copy, which carries no .git; defaults
+#                        to `git rev-parse HEAD` inside <upstream-dir>.
 #   HABITATUS_INTERMEDIATE_PLOTS
 #                        comma-separated RELEVE_NRs whose per-condition values
 #                        and per-expression truth values are written to
@@ -33,6 +48,33 @@ if (nzchar(synth)) synth <- normalizePath(synth, mustWork = FALSE)
 
 owd <- setwd(upstream)
 on.exit(setwd(owd))
+
+# Which semantics does this tree implement? Read off the source rather than
+# taken on trust from the caller: a patched copy that silently failed to patch
+# would otherwise produce a "repaired" fixture set that is really the faithful
+# one, and the golden master would pass for the wrong reason.
+step8 <- readLines(file.path("code", "step3and5_extract-and-solve-membership-conditions.R"))
+blanket <- "logi1[which(unlist(lapply(logi1, is.numeric)))] <- FALSE"
+coerce <- paste0("logi1[which(unlist(lapply(logi1, is.numeric)))] <- lapply(",
+                 "logi1[which(unlist(lapply(logi1, is.numeric)))], ",
+                 "function(x) ifelse(x == 0, FALSE, TRUE))")
+active <- trimws(step8)
+n.blanket <- sum(active == blanket)
+n.coerce <- sum(active == coerce)
+if (n.blanket == 1 && n.coerce == 0) {
+  mode <- "faithful"
+} else if (n.blanket == 0 && n.coerce == 1) {
+  mode <- "repaired"
+} else {
+  stop("cannot tell which semantics ", upstream, " implements: ", n.blanket,
+       " active blanket-FALSE line(s), ", n.coerce, " active coercion line(s)")
+}
+message("upstream tree implements the '", mode, "' semantics")
+
+upstream.commit <- Sys.getenv("HABITATUS_UPSTREAM_COMMIT")
+if (!nzchar(upstream.commit)) {
+  upstream.commit <- system("git rev-parse HEAD", intern = TRUE)
+}
 
 source("code/prep.R")
 suppressPackageStartupMessages(library(jsonlite))
@@ -149,7 +191,8 @@ writeLines(toJSON(list(
   n_rules = length(vegtype.formulas),
   n_conditions = length(conditions),
   n_expressions = length(membership.expressions),
-  upstream_commit = system("git rev-parse HEAD", intern = TRUE),
+  mode = mode,
+  upstream_commit = upstream.commit,
   esy_file = basename(esyfile),
   r_version = R.version.string,
   generated = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")
@@ -237,7 +280,7 @@ for (i in want) {
 close(con)
 
 message("wrote ", length(ids), " cases and ", length(want),
-        " intermediates to ", outdir)
+        " intermediates (mode '", mode, "') to ", outdir)
 message("unassigned '?': ", sum(result.classification == "?"),
         "  ambiguous '+': ", sum(result.classification == "+"),
         "  assigned: ", sum(!result.classification %in% c("?", "+")),
