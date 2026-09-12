@@ -133,7 +133,8 @@ fuzz:
 # Mutation testing: coverage says a line ran, mutation says a test would have
 # caught a bug in it. The thresholds are a ratchet, raised as tests improve.
 mutation:
-	gremlins unleash --tags="" ./internal/esy/... --threshold-efficacy=70 --threshold-mcover=80
+	gremlins unleash ./internal/esy --timeout-coefficient=20 \
+	  --threshold-efficacy=78 --threshold-mcover=88
 
 # Every dependency of the shipped binary must carry a permissive licence. The
 # core has no third-party dependencies at all, so this gate mainly guards

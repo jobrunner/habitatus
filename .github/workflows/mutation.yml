@@ -4,7 +4,8 @@
 # a test that merely executes it proves nothing.
 #
 # The thresholds are a RATCHET — raise them as the tests improve, and treat
-# lowering one as a decision that needs an argument in the PR.
+# lowering one as a decision that needs an argument in the PR. Measured at
+# the time of writing: efficacy 81.8 %, mutator coverage 90.4 %.
 name: Mutation
 
 on:
@@ -18,6 +19,14 @@ on:
 
 permissions:
   contents: read
+
+# GitHub's implicit shell is `bash -e`, without pipefail: a failing command
+# piped into tee reports the exit status of tee, which is always 0. That is
+# how this job first reported green while gremlins was failing outright.
+# The `bash` keyword means `bash --noprofile --norc -eo pipefail`.
+defaults:
+  run:
+    shell: bash
 
 jobs:
   gremlins:
@@ -36,8 +45,18 @@ jobs:
 
       - name: Mutate the evaluator
         run: |
-          gremlins unleash ./internal/esy/... \
-            --threshold-efficacy=70 --threshold-mcover=80 \
+          # The path is a directory, not a pattern: gremlins appends /...
+          # itself, so ./internal/esy/... becomes ./internal/esy/.../... and
+          # matches nothing — which it reports as a coverage failure.
+          #
+          # The timeout coefficient matters as much. gremlins derives each
+          # mutant's timeout from the baseline test run, and for a package
+          # this fast the derived value is shorter than a mutant's compile:
+          # at the default, 63 of 66 mutants timed out and the score was
+          # noise (efficacy "100%" from three killed mutants).
+          gremlins unleash ./internal/esy \
+            --timeout-coefficient=20 \
+            --threshold-efficacy=78 --threshold-mcover=88 \
             2>&1 | tee mutation.log
 
       - name: Upload the mutation report

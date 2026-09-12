@@ -30,6 +30,13 @@ env:
 permissions:
   contents: read
 
+# GitHub's implicit shell is `bash -e`, which does NOT set pipefail: a failing
+# command piped into tee reports tee's exit status, so the step passes. The
+# `bash` keyword means `bash --noprofile --norc -eo pipefail`.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   # ===========================================================================
   # Version. release-please owns VERSION and CHANGELOG.md; this job only checks
