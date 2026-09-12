@@ -138,8 +138,13 @@ mutation:
 # Every dependency of the shipped binary must carry a permissive licence. The
 # core has no third-party dependencies at all, so this gate mainly guards
 # against one being added unnoticed.
+# --ignore skips the module's own packages: go-licenses classifies each
+# package by the nearest LICENSE file, and this repository carries none, so
+# first-party code would otherwise report as "not allowed". Adding a LICENSE
+# would also fix it — that is a decision, not a CI detail.
 licenses:
 	go-licenses check ./cmd/habitatus \
+	  --ignore github.com/jobrunner/habitatus \
 	  --allowed_licenses=Apache-2.0,BSD-2-Clause,BSD-3-Clause,MIT,ISC,MPL-2.0,Unlicense
 
 # A Software Bill of Materials for the source tree, in both formats consumers
