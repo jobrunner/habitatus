@@ -72,6 +72,7 @@ der CI ohnehin; lokal gezielt vor einer Änderung, die sie betrifft.
 | License Compliance | go-licenses | eine Abhängigkeit unter unpassender Lizenz |
 | SBOM | syft (SPDX + CycloneDX), grype | fehlende Stückliste; bekannte Lücken darin |
 | Secret Scan | gitleaks | Zugangsdaten in der Historie |
+| CodeQL | github/codeql-action | Datenflüsse quer durch das Programm — was ein Linter, der je Funktion urteilt, nicht sehen kann |
 | Architecture | `go mod tidy -diff`, Abhängigkeitsfreiheit, Regeldatei-Prüfsumme | eine unbemerkt eingeführte Abhängigkeit; eine stille Änderung der vendorierten Regeldatei, die jede Verifikationsaussage entwertet |
 | Build | `go build`, `gofmt -l` | nicht übersetzbarer oder unformatierter Stand |
 | Docker Lint | hadolint | Fehler im Dockerfile |

@@ -1,0 +1,58 @@
+# CodeQL analysis. The repository ruleset "protect-main" carries a
+# code_scanning rule naming CodeQL specifically, with thresholds "errors" and
+# "high_or_higher" — without this workflow that rule has no results to judge
+# and blocks every merge, which is how its absence was noticed.
+#
+# CodeQL complements the linters rather than repeating them: golangci-lint
+# reasons within a function, CodeQL follows data across the program, which is
+# what finds a tainted value reaching a sink several calls away.
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Re-analyse weekly: queries improve even when the code does not.
+    - cron: '0 6 * * 2'
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write # required to publish results to code scanning
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [go, actions]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        if: matrix.language == 'go'
+        with:
+          go-version: '1.26.8'
+
+      - name: Initialise CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # security-and-quality is the broadest suite; the service has no
+          # third-party code, so the extra queries cost little to run.
+          queries: security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Analyse
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:${{ matrix.language }}
