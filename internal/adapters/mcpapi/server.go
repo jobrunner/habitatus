@@ -228,9 +228,30 @@ func (s *Server) Serve(in io.Reader, out io.Writer) error {
 			continue
 		}
 		if req.ID == nil {
-			// A request with no "id" member is a notification. Dispatch it
-			// for any side effect a recognised method might have, but never
-			// respond — not even with an error — regardless of outcome.
+			if req.Method == "" {
+				// No "id" and no "method" — this is not a notification,
+				// because a notification is still a request and every
+				// request carries a method. "null" and "{}" both decode to
+				// this zero value. It is not recognisably anything, so the
+				// spec's answer is an ordinary invalid-request response
+				// with id: null, not silence.
+				if err := enc.Encode(rpcResponse{
+					JSONRPC: "2.0",
+					ID:      nullID,
+					Error:   &rpcError{Code: codeInvalidRequest, Message: "invalid request: missing method"},
+				}); err != nil {
+					return err
+				}
+				continue
+			}
+			// A request with no "id" member but a method is a genuine
+			// notification. Dispatch it for any side effect a recognised
+			// method might have, but never respond — not even with an
+			// error — regardless of outcome. This includes a wrong
+			// "jsonrpc" version: the spec's "no response to notifications"
+			// wins over "invalid request gets -32600" once the object is
+			// recognisably a notification, because a client that sent one
+			// is not listening for an answer.
 			s.dispatch(req)
 			continue
 		}

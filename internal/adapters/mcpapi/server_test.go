@@ -260,6 +260,70 @@ func TestUnknownMethodNotificationGetsNoResponse(t *testing.T) {
 	}
 }
 
+// A bare JSON "null" and an empty object "{}" both decode to a zero
+// rpcRequest: no id, no method. They are not notifications — a
+// notification is still a request, and every request carries a method —
+// so they must not be swallowed silently. JSON-RPC 2.0 calls an object
+// with no method an invalid request: -32600, with id: null.
+func TestNullLineIsInvalidRequestNotNotification(t *testing.T) {
+	var out bytes.Buffer
+	in := strings.NewReader("null\n")
+	if err := testServer(t).Serve(in, &out); err != nil {
+		t.Fatal(err)
+	}
+	resps := decodeResponses(t, &out)
+	if len(resps) != 1 {
+		t.Fatalf("want 1 response, got %d: %s", len(resps), out.String())
+	}
+	assertInvalidRequestWithNullID(t, resps[0])
+}
+
+func TestEmptyObjectLineIsInvalidRequestNotNotification(t *testing.T) {
+	var out bytes.Buffer
+	in := strings.NewReader("{}\n")
+	if err := testServer(t).Serve(in, &out); err != nil {
+		t.Fatal(err)
+	}
+	resps := decodeResponses(t, &out)
+	if len(resps) != 1 {
+		t.Fatalf("want 1 response, got %d: %s", len(resps), out.String())
+	}
+	assertInvalidRequestWithNullID(t, resps[0])
+}
+
+func assertInvalidRequestWithNullID(t *testing.T, resp map[string]any) {
+	t.Helper()
+	idVal, ok := resp["id"]
+	if !ok {
+		t.Errorf("must carry an \"id\" member (null), got %v", resp)
+	}
+	if idVal != nil {
+		t.Errorf("id must be null, got %v", idVal)
+	}
+	errObj, ok := resp["error"].(map[string]any)
+	if !ok {
+		t.Fatalf("must carry a JSON-RPC error object, got %v", resp)
+	}
+	code, _ := errObj["code"].(float64)
+	if code != -32600 {
+		t.Errorf("error code = %v, want -32600 (invalid request)", errObj["code"])
+	}
+}
+
+// A well-formed notification (has a method, no id) must remain silent even
+// after the null/{} fix — the two cases are distinguished by the presence
+// of a method, not by anything else.
+func TestWellFormedNotificationStillSilentAfterInvalidRequestFix(t *testing.T) {
+	var out bytes.Buffer
+	in := strings.NewReader(`{"jsonrpc":"2.0","method":"tools/list"}` + "\n")
+	if err := testServer(t).Serve(in, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("a well-formed notification must still produce no output, got %s", out.String())
+	}
+}
+
 func TestToolsCallUnknownToolReturnsInvalidParams(t *testing.T) {
 	call := map[string]any{
 		"jsonrpc": "2.0", "id": 8, "method": "tools/call",
