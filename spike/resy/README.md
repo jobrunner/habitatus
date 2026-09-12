@@ -1,13 +1,47 @@
-# R spike: golden master against upstream ESy v1.2
+# R spike: golden masters against upstream ESy
 
 This directory drives the upstream R implementation
 (`spike/ESy-upstream`, commit 416bab9, version 1.2) to produce the fixtures
-`internal/esy/golden_test.go` compares habitatus against. **Upstream is never
+`internal/esy/golden_test.go` compares habitatus against. **The clone is never
 modified** — the scripts only source its code and read the objects it leaves
 behind.
 
-    make fixtures   # regenerate testdata/golden/
-    make golden     # run the golden master against them
+    make fixtures   # regenerate testdata/golden/ and testdata/golden-repaired/
+    make golden     # run both golden masters against them
+
+## Two oracles, one per semantics
+
+habitatus evaluates in one of two modes (see the repository README and
+`docs/superpowers/specs/2026-09-12-zwei-semantiken.md`), and each is compared
+against its own upstream run:
+
+| fixture set | oracle | mode |
+| --- | --- | --- |
+| `testdata/golden/` | `spike/ESy-upstream` exactly as shipped | `faithful` |
+| `testdata/golden-repaired/` | the same tree with the two lines of step 8 swapped | `repaired` |
+
+`spike/resy/patch-upstream.sh` builds the second oracle: it copies the
+upstream tree to `build/ESy-upstream-repaired` (without `.git`, which is
+~486 MB), uncomments upstream's own coercion line and comments out the blanket
+`FALSE` that replaced it in commit `376cffc`, then verifies that the copy
+differs from the original in exactly that one file. **The clone under
+`spike/ESy-upstream` is read-only; only the copy is patched.**
+
+Both runs use the same rule file and the same synthetic plots — `make
+synthetic` generates `synthetic.jsonl` once and both runs read it — so the two
+fixture sets differ in nothing but the semantics of the oracle. The copy has
+no `.git`, so the Makefile passes the commit in as
+`HABITATUS_UPSTREAM_COMMIT`, and both sets record the same
+`upstream.commit`. `generate-fixtures.R` reads which semantics the tree it was
+pointed at implements off its source and writes it to `meta.json` as `mode`;
+the golden master refuses a fixture set whose `mode` does not match the
+semantics it is comparing, so an unpatched copy cannot make the repaired run
+pass for the wrong reason.
+
+Measured difference between the two sets over the 10,295 archive plots:
+89.42 % unambiguously assigned in `faithful`, 93.61 % in `repaired`, with
+2,657 plots changing their winner. Bruelheide et al. 2021 report 94 % for this
+dataset.
 
 ## Which `make` target covers what
 
@@ -18,7 +52,7 @@ answers the question at hand:
 | --- | --- | --- |
 | `make test` | the ordinary suite, `go test ./...` | seconds |
 | `make check` | `make test`, plus every test gated behind `ESY_FILE` — direct assertions against the real rule file (parse counts, formula shapes, reachability) — that the plain suite silently skips | seconds |
-| `make golden` | the golden master: habitatus vs. upstream R over all 11,337 fixture plots | ~280s |
+| `make golden` | both golden masters: habitatus vs. upstream R over all 11,337 fixture plots, once per semantics (`make golden-faithful` / `make golden-repaired` for one of them) | ~570s |
 
 `make check` exists because a test gated behind an environment variable is a
 test nobody runs by default. `TestGroupsRealFile` asserted a stale distinct-
@@ -32,7 +66,8 @@ the rule pack; it is the one command meant to run all of them together.
 
 | file | what it does |
 | --- | --- |
-| `generate-fixtures.R` | drives upstream and writes `testdata/golden/` |
+| `generate-fixtures.R` | drives an upstream tree and writes a fixture set; detects and records which semantics that tree implements |
+| `patch-upstream.sh` | copies the upstream tree and swaps the two lines of step 8, producing the `repaired` oracle |
 | `synthesize.go` | builds rule-driven plots so rules the German archive cannot reach are still compared (`//go:build ignore`) |
 | `diagnose.go` | compares the two sides and reports where they differ, down to the single expression (`//go:build ignore`) |
 
@@ -159,7 +194,9 @@ plots and does exercise them.
 
 ## Output
 
-Written to `testdata/golden/`:
+Written to the fixture directory (`testdata/golden/` or
+`testdata/golden-repaired/`; `synthetic.jsonl` is generated once and lives in
+the former):
 
 | file | contents |
 | --- | --- |
@@ -170,7 +207,7 @@ Written to `testdata/golden/`:
 | `rule-exprs.json` | per rule, the expression indices its formula uses, in order |
 | `intermediates.jsonl` | per-condition values and per-expression truth values |
 | `synthetic.jsonl` | the generated plots, before they go through R |
-| `meta.json`, `rulepack.sha256`, `upstream.commit` | provenance |
+| `meta.json`, `rulepack.sha256`, `upstream.commit` | provenance, including the `mode` the generating tree implements |
 
 `intermediates.jsonl` is what makes a divergence diagnosable: comparing only
 the final EUNIS code says *that* something differs, comparing conditions says

@@ -544,6 +544,16 @@ der Notiz an die Autoren angefragt.
 
 ### `#NN Gruppe` ist im Upstream immer FALSE
 
+> **Nachtrag 2026-09-12.** Dieser Abschnitt beschreibt den Modus `faithful`.
+> Seit [`2026-09-12-zwei-semantiken.md`](2026-09-12-zwei-semantiken.md) läuft
+> der Dienst standardmäßig im Modus `repaired`, in dem genau diese 128
+> Ausdrücke wieder über ihren Zahlenwert gewandelt werden (0 = falsch, sonst
+> wahr) — so wie ESy es bis v1.1 tat. Die unten aufgezählten 100
+> unerreichbaren Regeln sind dort erreichbar; `Stats.Unreachable` ist im
+> Modus `repaired` leer. Die Nachbildung in `rulepack.isAlwaysFalse` bleibt
+> unverändert: sie markiert die Ausdrücke, der Modus entscheidet, was daraus
+> folgt.
+
 Die folgenreichste nachgebildete Eigenheit. Gemeint ist „die Gruppe hat
 mindestens NN Arten"; ausgewertet wird sie nie.
 
@@ -584,7 +594,16 @@ V11! V12 V12! V13 V13! V15 V32 V34 V35
 
 Nachgebildet in `rulepack.isAlwaysFalse`; die Liste wird beim Laden statisch
 berechnet und als `Stats.Unreachable` ausgewiesen, damit sie nicht mit „Regel
-ist bisher nicht vorgekommen" verwechselt wird.
+ist bisher nicht vorgekommen" verwechselt wird. Sie gilt für `faithful`; in
+`repaired` ist sie leer.
+
+Der 128. dieser Ausdrücke ist `<#TC Cliff-ferns GR05>` in Regel `Q61`, dessen
+Operator ohne Leerzeichen geschrieben ist. Weil der Upstream ihn nie zerlegt,
+sucht er die Gruppe **`Cliff-ferns GR05`** — die es nicht gibt (`fmatch`
+liefert `NA`, `groups[[NA]]` ist `NULL`), und der Bedingungswert bleibt für
+jede Aufnahme 0. Der Ausdruck ist damit in **beiden** Modi falsch, nicht nur
+in `faithful`; `ParseExpr` bildet das nach, indem es den Operator in dieser
+Form bewusst nicht anwendet. Am Orakel des `repaired`-Laufs geprüft.
 
 ### Bekannte Eigenheiten, die nachgebildet werden
 

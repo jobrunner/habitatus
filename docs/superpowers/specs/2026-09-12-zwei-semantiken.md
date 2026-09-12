@@ -1,7 +1,7 @@
 # Zwei Semantiken: `repaired` und `faithful`
 
 **Datum:** 2026-09-12
-**Status:** beschlossen, Umsetzung offen
+**Status:** umgesetzt
 
 ## Warum
 
@@ -88,3 +88,27 @@ Wenn das RESY-Team die Korrektur übernimmt, wird `repaired` zur Normalfassung
 und `faithful` zum historischen Modus. Die Umschaltung bleibt trotzdem
 nützlich: Wer Ergebnisse aus der Zeit zwischen Februar 2025 und dem Fix
 nachvollziehen muss, braucht sie.
+
+## Umsetzung
+
+Umgesetzt wie beschrieben. Zwei Abweichungen vom Text oben, beide am Orakel
+geprüft:
+
+1. `<#TC Cliff-ferns GR05>` ist **in beiden Modi falsch**, nicht nur in
+   `faithful`. Oben steht, in `repaired` werde sein Zahlenwert gewandelt und
+   sei damit wahr, sobald die Gruppe Deckung hat. Das trifft nicht zu: Weil
+   der Upstream den Ausdruck nie zerlegt, sucht er die Gruppe
+   `Cliff-ferns GR05` statt `Cliff-ferns`. Die gibt es nicht (`fmatch` → `NA`,
+   `groups[[NA]]` → `NULL`), der Bedingungswert bleibt für jede Aufnahme 0,
+   und 0 gewandelt ist falsch. `rulepack.ParseExpr` bildet das nach, indem es
+   den angeklebten Operator bewusst nicht anwendet. Der Regeldatei-Defekt
+   bleibt in beiden Modi bestehen — nur eben als konstantes Falsch.
+2. Die Modi unterscheiden sich damit in der **Auswertung** von 127 der 128
+   Ausdrücke; der 128. ist in beiden Modi falsch. Die Menge selbst ist
+   unverändert die, die `Expr.AlwaysFalse` markiert.
+
+Ergebnis der beiden Golden Master über je 11.337 Aufnahmen: beide bei **null**
+Abweichungen. `Stats.Unreachable` umfasst in `faithful` 100 Regeln, in
+`repaired` **keine**. Über die 10.295 Archiv-Aufnahmen: 89,42 % eindeutig
+zugeordnet in `faithful`, **93,61 %** in `repaired`, 2.657 Aufnahmen mit
+geändertem Gewinner — wie im Experiment vorhergesagt.
