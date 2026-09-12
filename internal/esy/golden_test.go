@@ -450,11 +450,35 @@ func labelsOf(ms []esy.Match) []string {
 	return out
 }
 
+// sameSet compares a and b as multisets: the rule file deliberately contains
+// duplicate labels (e.g. twelve rules named "T3M"), so two lists of equal
+// length with the same distinct labels but different multiplicities must not
+// compare equal — count occurrences per label on both sides.
 func sameSet(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	return len(missing(a, b)) == 0 && len(missing(b, a)) == 0
+	counts := map[string]int{}
+	for _, x := range a {
+		counts[x]++
+	}
+	for _, x := range b {
+		counts[x]--
+	}
+	for _, c := range counts {
+		if c != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func TestSameSetIsMultiset(t *testing.T) {
+	a := []string{"T3M", "T3M", "R1P"}
+	b := []string{"T3M", "R1P", "R1P"}
+	if sameSet(a, b) {
+		t.Fatalf("sameSet(%v, %v) = true, want false: equal length and equal distinct labels but different multiplicities", a, b)
+	}
 }
 
 // missing returns the elements of a that are not in b.
