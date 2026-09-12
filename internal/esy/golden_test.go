@@ -401,8 +401,17 @@ func testGoldenRuleCoverage(t *testing.T, v variant) {
 	sort.Strings(unreachable)
 	sort.Strings(silent)
 	t.Logf("%d of %d rules fired at least once", len(pack.Rules)-len(unreachable)-len(silent), len(pack.Rules))
-	t.Logf("%d can never fire: every way of satisfying them needs an expression upstream forces to FALSE: %s",
-		len(unreachable), strings.Join(unreachable, " "))
+	switch v.mode {
+	case esy.Faithful:
+		t.Logf("%d can never fire: every way of satisfying them needs an expression v1.2 forces to FALSE: %s",
+			len(unreachable), strings.Join(unreachable, " "))
+	default:
+		// Nothing is pinned to FALSE here, so the set is empty by
+		// construction; logged all the same, because an unexpected entry
+		// would be worth seeing.
+		t.Logf("%d can never fire (none can, in repaired mode): %s",
+			len(unreachable), strings.Join(unreachable, " "))
+	}
 	t.Logf("%d are reachable in principle but no fixture triggers them: %s",
 		len(silent), strings.Join(silent, " "))
 }

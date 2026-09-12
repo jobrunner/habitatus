@@ -15,11 +15,12 @@ import (
 // FALSE), and the reachable set correctly includes some rules while
 // excluding whole known-defective blocks. In esy.Repaired the same 100 are
 // reachable again — that number collapsing to zero is the sharpest evidence
-// that the mode does what it claims. Nothing else in the committed test suite exercises reach()/
-// ruleReachable() on the real, deeply nested And/Or/Not formulas — the unit
-// tests cover single-leaf and simple two-node cases only — so this is the
-// one place a regression in the tree walk over real-world formula shapes
-// would be caught.
+// that the mode does what it claims.
+//
+// Nothing else in the committed test suite exercises reach()/ruleReachable()
+// on the real, deeply nested And/Or/Not formulas — the unit tests cover
+// single-leaf and simple two-node cases only — so this is the one place a
+// regression in the tree walk over real-world formula shapes would be caught.
 func TestReachabilityRealFile(t *testing.T) {
 	p := os.Getenv("ESY_FILE")
 	if p == "" {
