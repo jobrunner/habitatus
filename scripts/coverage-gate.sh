@@ -54,8 +54,10 @@ while read -r pkg floor; do
   if [ -z "${t:-}" ] || [ "${t:-0}" -eq 0 ]; then
     printf "%-42s %8s %7s  NO DATA\n" "$pkg" "-" "$floor"; fail=1; continue
   fi
+  # pct is for DISPLAY only. The comparison uses the unrounded ratio: at one
+  # decimal place, 85.96 prints as 86.0 and would pass a floor of 86.
   pct=$(awk -v c="$c" -v t="$t" 'BEGIN{printf "%.1f", 100*c/t}')
-  if awk -v p="$pct" -v f="$floor" 'BEGIN{exit !(p < f)}'; then
+  if awk -v c="$c" -v t="$t" -v f="$floor" 'BEGIN{exit !(100*c/t < f)}'; then
     printf "%-42s %7s%% %6s%%  ▼ BELOW FLOOR\n" "$pkg" "$pct" "$floor"; fail=1
   else
     printf "%-42s %7s%% %6s%%\n" "$pkg" "$pct" "$floor"

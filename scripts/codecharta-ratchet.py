@@ -50,6 +50,14 @@ def cap_check(files, metric, default_cap, baseline, label, cfg_path):
     for rel, attrs in sorted(files.items()):
         val = attrs.get(metric)
         if val is None:
+            # A file with no value for this metric is normally uninteresting —
+            # but a BASELINED file losing its metric silently drops its cap,
+            # and the global "metric absent everywhere" guard below cannot see
+            # a single file going missing. Treat that as a violation.
+            if rel in baseline:
+                violations.append(
+                    f"{label}: {rel} is baselined at {baseline[rel]} but the map "
+                    f"carries no '{metric}' for it — its cap would vanish")
             continue
         cap = baseline.get(rel, default_cap)
         if val > cap:

@@ -1,8 +1,8 @@
 package classify
 
 import (
+	"bytes"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/jobrunner/habitatus/internal/esy"
@@ -39,7 +39,7 @@ func BenchmarkClassifyRealFile(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	pack, err := rulepack.Load(strings.NewReader(string(data)))
+	pack, err := rulepack.Load(bytes.NewReader(data))
 	if err != nil {
 		b.Fatal(err)
 	}

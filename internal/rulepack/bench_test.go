@@ -1,8 +1,8 @@
 package rulepack
 
 import (
+	"bytes"
 	"os"
-	"strings"
 	"testing"
 )
 
@@ -21,7 +21,10 @@ func BenchmarkLoadRealFile(b *testing.B) {
 	b.SetBytes(int64(len(data)))
 	b.ResetTimer()
 	for b.Loop() {
-		if _, err := Load(strings.NewReader(string(data))); err != nil {
+		// bytes.NewReader over the bytes we already hold: converting to a
+		// string inside the loop would copy 8 MB per iteration and charge
+		// the parser for work that reading an *os.File never does.
+		if _, err := Load(bytes.NewReader(data)); err != nil {
 			b.Fatal(err)
 		}
 	}

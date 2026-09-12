@@ -169,7 +169,9 @@ func validateEnums(h map[string]string) error {
 // bound, so a range check alone would let it through and it would then poison
 // every group total it reaches.
 func validateNumbers(h map[string]string) error {
-	nums := map[string]float64{}
+	// Three locals, not a map: this runs on every classification request, and
+	// a map here allocates on the heap for no gain.
+	var alt, lat, lon float64
 	for _, f := range []string{fieldAltitude, fieldLat, fieldLon} {
 		v, err := strconv.ParseFloat(h[f], 64)
 		if err != nil {
@@ -178,17 +180,24 @@ func validateNumbers(h map[string]string) error {
 		if math.IsNaN(v) || math.IsInf(v, 0) {
 			return invalidf("%s %q must be a finite number", f, h[f])
 		}
-		nums[f] = v
+		switch f {
+		case fieldAltitude:
+			alt = v
+		case fieldLat:
+			lat = v
+		case fieldLon:
+			lon = v
+		}
 	}
-	if lat := nums[fieldLat]; lat < -90 || lat > 90 {
+	if lat < -90 || lat > 90 {
 		return invalidf("DEG_LAT %v is out of range", lat)
 	}
-	if lon := nums[fieldLon]; lon < -180 || lon > 180 {
+	if lon < -180 || lon > 180 {
 		return invalidf("DEG_LON %v is out of range", lon)
 	}
 	// -500 to 9000 metres is generous — the rule file's own thresholds top
 	// out at 1500 — but still catches a transposed or garbage value.
-	if alt := nums[fieldAltitude]; alt < -500 || alt > 9000 {
+	if alt < -500 || alt > 9000 {
 		return invalidf("Altitude (m) %v is out of range", alt)
 	}
 	return nil
