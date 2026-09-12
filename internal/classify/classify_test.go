@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jobrunner/habitatus/internal/esy"
 	"github.com/jobrunner/habitatus/internal/rulepack"
 	"github.com/jobrunner/habitatus/internal/taxa"
 )
@@ -31,7 +32,7 @@ func newTestService(t *testing.T) *Service {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewService(pack, nil, map[string]string{"rulepack": "test"})
+	return NewService(pack, nil, map[string]string{"rulepack": "test"}, esy.Repaired)
 }
 
 func TestClassifyHappyPath(t *testing.T) {
@@ -129,7 +130,7 @@ func TestClassifyVersionsCarryTheBackbone(t *testing.T) {
 	}
 	base := map[string]string{"rulepack": "EUNIS-ESy-2025-10-03.txt"}
 	tables := map[string]map[string]string{"germansl": {"Buche": "Fagus sylvatica"}}
-	s := NewService(pack, tables, base)
+	s := NewService(pack, tables, base, esy.Repaired)
 
 	for _, backbone := range []string{"euro+med", "germansl"} {
 		got, err := s.Classify(Request{
@@ -149,5 +150,35 @@ func TestClassifyVersionsCarryTheBackbone(t *testing.T) {
 	}
 	if _, leaked := base["backbone"]; leaked {
 		t.Errorf("the service-wide versions map was mutated: %v", base)
+	}
+}
+
+// TestClassifyVersionsCarryTheMode pins the second half of the same
+// requirement: a caller must be able to tell which evaluation semantics
+// produced the answer. Without it a result is not interpretable, because the
+// two modes disagree about 2,657 of the 10,295 archive plots. The caller-
+// supplied versions map must not be mutated to carry it.
+func TestClassifyVersionsCarryTheMode(t *testing.T) {
+	pack, err := rulepack.Load(strings.NewReader(tinyPack))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []esy.Mode{esy.Repaired, esy.Faithful} {
+		base := map[string]string{"rulepack": "EUNIS-ESy-2025-10-03.txt"}
+		s := NewService(pack, nil, base, mode)
+		got, err := s.Classify(Request{
+			Records:  []taxa.Record{{Name: "Fagus sylvatica", Cover: 30}},
+			Backbone: "euro+med",
+			Header:   validHeader(),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Versions["mode"] != mode.String() {
+			t.Errorf("versions[mode] = %q, want %q", got.Versions["mode"], mode)
+		}
+		if _, leaked := base["mode"]; leaked {
+			t.Errorf("the caller's versions map was mutated: %v", base)
+		}
 	}
 }

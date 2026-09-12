@@ -39,14 +39,16 @@ func truncatedAt10[T any](ms []T) bool { return len(ms) > 10 }
 // errors no test finds — a client that fills one header field wrongly shows
 // up here.
 //
-// NeverFired and Unreachable are reported separately on purpose. 100 of the
-// 312 rules in the real rule file can never fire at all: upstream forces
-// every "#NN Group" expression to FALSE (see rulepack.Expr.AlwaysFalse), and
-// every satisfying assignment of those 100 rules needs one to be true. That
-// is a static property of the rule pack, computed once at load time and
-// exposed as Unreachable. NeverFired excludes it, so it stays the
-// operationally interesting signal: a reachable rule that has not fired in
-// any request so far.
+// NeverFired and Unreachable are reported separately on purpose, and
+// Unreachable depends on the evaluation mode. In esy.Faithful, 100 of the 312
+// rules in the real rule file can never fire at all: v1.2 forces every
+// "#NN Group" expression to FALSE (see rulepack.Expr.AlwaysFalse), and every
+// satisfying assignment of those 100 rules needs one to be true. In
+// esy.Repaired those expressions carry a real truth value again and the set
+// collapses. Either way it is a static property of the rule pack and the
+// mode, computed once at construction and exposed as Unreachable. NeverFired
+// excludes it, so it stays the operationally interesting signal: a reachable
+// rule that has not fired in any request so far.
 type Stats struct {
 	Total       int
 	Question    int
@@ -60,6 +62,7 @@ type Service struct {
 	pack      *rulepack.Pack
 	backbones map[string]map[string]string
 	versions  map[string]string
+	mode      esy.Mode
 
 	// allLabels and unreachable are fixed at construction time: allLabels
 	// is every rule label in file order, unreachable is the subset that
@@ -75,8 +78,11 @@ type Service struct {
 }
 
 // NewService builds a service. backbones maps a backbone id to its translation
-// table; the id "euro+med" is the identity and needs no table.
-func NewService(pack *rulepack.Pack, backbones map[string]map[string]string, versions map[string]string) *Service {
+// table; the id "euro+med" is the identity and needs no table. mode selects
+// the evaluation semantics (see esy.Mode) and is reported in the versions map
+// of every response: a result whose semantics the caller cannot identify is
+// not interpretable.
+func NewService(pack *rulepack.Pack, backbones map[string]map[string]string, versions map[string]string, mode esy.Mode) *Service {
 	// Several distinct rules can share the same code with no variant
 	// marker to tell them apart — a rule-file data quirk (e.g. "T3M"
 	// occurs 12 times in the 2025-10-03 file), not a habitatus artefact.
@@ -93,7 +99,7 @@ func NewService(pack *rulepack.Pack, backbones map[string]map[string]string, ver
 			seen[label] = true
 			allLabels = append(allLabels, label)
 		}
-		if ruleReachable(r.Formula) {
+		if ruleReachable(r.Formula, mode) {
 			reachableLabel[label] = true
 		}
 	}
@@ -103,10 +109,18 @@ func NewService(pack *rulepack.Pack, backbones map[string]map[string]string, ver
 			unreachable[label] = true
 		}
 	}
+	// The mode goes into the shared versions map, so every response carries
+	// it without the request path having to remember to add it.
+	withMode := make(map[string]string, len(versions)+1)
+	for k, v := range versions {
+		withMode[k] = v
+	}
+	withMode["mode"] = mode.String()
 	return &Service{
 		pack:        pack,
 		backbones:   backbones,
-		versions:    versions,
+		versions:    withMode,
+		mode:        mode,
 		allLabels:   allLabels,
 		unreachable: unreachable,
 		fired:       map[string]bool{},
@@ -114,37 +128,40 @@ func NewService(pack *rulepack.Pack, backbones map[string]map[string]string, ver
 }
 
 // ruleReachable reports whether a rule's formula can ever evaluate TRUE. It
-// treats every leaf other than an AlwaysFalse one as an independent free
-// variable and asks whether TRUE is reachable at the root — a structural
-// property of the formula's shape, not of any plot. An AlwaysFalse leaf (an
-// "#NN Group" expression, see rulepack.Expr.AlwaysFalse) can only ever be
-// FALSE, so a rule whose every path to TRUE runs through one is unreachable.
-func ruleReachable(n rulepack.Node) bool {
-	reachTrue, _ := reach(n)
+// treats every leaf that is not pinned to FALSE by the mode as an independent
+// free variable and asks whether TRUE is reachable at the root — a structural
+// property of the formula's shape, not of any plot.
+//
+// In esy.Faithful an AlwaysFalse leaf (an "#NN Group" expression, see
+// rulepack.Expr.AlwaysFalse) can only ever be FALSE, so a rule whose every
+// path to TRUE runs through one is unreachable. In esy.Repaired the same leaf
+// has a real truth value and is a free variable like any other.
+func ruleReachable(n rulepack.Node, mode esy.Mode) bool {
+	reachTrue, _ := reach(n, mode)
 	return reachTrue
 }
 
 // reach returns whether TRUE and whether FALSE are each reachable at n for
 // some assignment of its free leaves.
-func reach(n rulepack.Node) (reachTrue, reachFalse bool) {
+func reach(n rulepack.Node, mode esy.Mode) (reachTrue, reachFalse bool) {
 	switch v := n.(type) {
 	case rulepack.Leaf:
-		if v.Expr.AlwaysFalse {
+		if v.Expr.AlwaysFalse && mode == esy.Faithful {
 			return false, true
 		}
 		return true, true
 	case rulepack.And:
-		lt, lf := reach(v.L)
-		rt, rf := reach(v.R)
+		lt, lf := reach(v.L, mode)
+		rt, rf := reach(v.R, mode)
 		return lt && rt, lf || rf
 	case rulepack.Or:
-		lt, lf := reach(v.L)
-		rt, rf := reach(v.R)
+		lt, lf := reach(v.L, mode)
+		rt, rf := reach(v.R, mode)
 		return lt || rt, lf && rf
 	case rulepack.Not:
 		// Not is "L AND NOT R".
-		lt, lf := reach(v.L)
-		rt, rf := reach(v.R)
+		lt, lf := reach(v.L, mode)
+		rt, rf := reach(v.R, mode)
 		return lt && rf, lf || rt
 	}
 	return false, true
@@ -186,7 +203,7 @@ func (s *Service) Classify(req Request) (Response, error) {
 		header[field] = req.Header[field]
 	}
 
-	env := esy.Env{Groups: s.pack.Groups}
+	env := esy.Env{Groups: s.pack.Groups, Mode: s.mode}
 	res := env.Evaluate(s.pack.Rules, esy.Plot{Records: resolved, Header: header})
 	s.record(res)
 	return Response{

@@ -13,12 +13,14 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/jobrunner/habitatus/internal/adapters/httpapi"
 	"github.com/jobrunner/habitatus/internal/adapters/mcpapi"
 	"github.com/jobrunner/habitatus/internal/classify"
+	"github.com/jobrunner/habitatus/internal/esy"
 	"github.com/jobrunner/habitatus/internal/rulepack"
 )
 
@@ -27,6 +29,11 @@ func main() {
 	rulesPath := flag.String("rules", "", "path to the ESy rule file")
 	backbonesPath := flag.String("backbones", "", "path to the directory of nomenclature translation tables (optional)")
 	mcp := flag.Bool("mcp", false, "serve MCP over stdio instead of HTTP")
+	modeName := flag.String("mode", esy.Repaired.String(),
+		"evaluation semantics: "+strings.Join(esy.ModeNames(), "|")+
+			" (repaired evaluates the expressions ESy v1.2 forces to FALSE by "+
+			"coercing their numeric value, as R did up to v1.1; faithful "+
+			"reproduces v1.2 as shipped)")
 	flag.Parse()
 
 	// Logging always goes to stderr, never stdout. In -mcp mode stdout is
@@ -40,13 +47,24 @@ func main() {
 		os.Exit(2)
 	}
 
-	if err := run(log, *addr, *rulesPath, *backbonesPath, *mcp); err != nil {
+	mode, err := esy.ParseMode(*modeName)
+	if err != nil {
+		log.Error("invalid -mode", "err", err)
+		os.Exit(2)
+	}
+
+	if err := run(log, *addr, *rulesPath, *backbonesPath, *mcp, mode); err != nil {
 		log.Error("habitatus exited with an error", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(log *slog.Logger, addr, rulesPath, backbonesPath string, mcp bool) error {
+func run(log *slog.Logger, addr, rulesPath, backbonesPath string, mcp bool, mode esy.Mode) error {
+	// Logged before anything else the service does: which semantics a run
+	// used decides what its answers mean, and an operator reading the log
+	// after the fact must not have to infer it.
+	log.Info("evaluation mode", "mode", mode.String())
+
 	f, err := os.Open(rulesPath)
 	if err != nil {
 		return errors.New("cannot open rule file: " + err.Error())
@@ -115,7 +133,7 @@ func run(log *slog.Logger, addr, rulesPath, backbonesPath string, mcp bool) erro
 		"rulepack":        filepath.Base(rulesPath),
 		"rulepack_sha256": digest,
 	}
-	svc := classify.NewService(pack, backbones, versions)
+	svc := classify.NewService(pack, backbones, versions, mode)
 
 	if mcp {
 		if err := mcpapi.NewServer(svc).Serve(os.Stdin, os.Stdout); err != nil {

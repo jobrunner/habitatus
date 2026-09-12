@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jobrunner/habitatus/internal/classify"
+	"github.com/jobrunner/habitatus/internal/esy"
 	"github.com/jobrunner/habitatus/internal/rulepack"
 )
 
@@ -32,7 +33,7 @@ func testServer(t *testing.T) http.Handler {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewServer(classify.NewService(pack, nil, map[string]string{"rulepack": "test"}))
+	return NewServer(classify.NewService(pack, nil, map[string]string{"rulepack": "test"}, esy.Repaired))
 }
 
 const goodBody = `{

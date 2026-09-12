@@ -9,8 +9,15 @@ import (
 	"github.com/jobrunner/habitatus/internal/taxa"
 )
 
-func testEnv() Env {
-	return Env{Groups: map[string][]string{
+// testEnv is the shared fixture environment. It evaluates in Faithful mode
+// because every assertion below predates the second semantics and was written
+// against v1.2; the two modes differ only for the expressions
+// rulepack.Expr.AlwaysFalse marks, which the mode-aware test below covers in
+// both modes.
+func testEnv() Env { return testEnvIn(Faithful) }
+
+func testEnvIn(mode Mode) Env {
+	return Env{Mode: mode, Groups: map[string][]string{
 		"Trees":  {"Fagus sylvatica", "Quercus robur", "Carpinus betulus"},
 		"Shrubs": {"Corylus avellana"},
 	}}
@@ -36,23 +43,50 @@ func testPlot() Plot {
 
 func evalRaw(t *testing.T, raw string) (Tri, float64, float64) {
 	t.Helper()
+	return evalRawIn(t, Faithful, raw)
+}
+
+func evalRawIn(t *testing.T, mode Mode, raw string) (Tri, float64, float64) {
+	t.Helper()
 	x, err := rulepack.ParseExpr(raw)
 	if err != nil {
 		t.Fatalf("ParseExpr(%q): %v", raw, err)
 	}
-	return testEnv().EvalExpr(x, testPlot())
+	return testEnvIn(mode).EvalExpr(x, testPlot())
 }
 
-// TestEvalAlwaysFalse pins upstream's handling of expressions that never
-// become a comparison: they evaluate to a number and v1.2 replaces every
-// numeric expression result with FALSE. See rulepack.ParseExpr for the R
-// citation. "#01 Shrubs" is satisfied on the test plot -- Corylus avellana is
-// present -- and must still be FALSE.
+// TestEvalAlwaysFalse pins the one place the two semantics differ:
+// expressions that never become a comparison, so that upstream's evaluation
+// of them stays numeric. In faithful mode v1.2 replaces every numeric result
+// with FALSE; in repaired mode R's own coercion applies, which is what ESy
+// did up to v1.1. See rulepack.ParseExpr and esy.Mode for the R citations.
+//
+// "#01 Shrubs" is satisfied on the test plot -- Corylus avellana is present,
+// so the count condition is 1 -- and is FALSE in faithful, TRUE in repaired.
+// "#09 Trees" needs nine species and the plot has three, so its condition is
+// 0 and it is FALSE in both.
+//
+// "#TC Cliff-ferns GR05" is the glued-operator expression of rule Q61. Its
+// condition value is 0 for every plot in both modes, because upstream looks
+// up the group "Cliff-ferns GR05" and finds none -- not because the group is
+// absent from the plot. The test plot carries no cliff-fern either way, so
+// "#TC Trees GR05" stands in for it: the Trees group HAS cover here, and the
+// expression must still be FALSE in both modes.
 func TestEvalAlwaysFalse(t *testing.T) {
-	for _, raw := range []string{"#01 Shrubs", "#TC Trees GR05"} {
-		got, _, _ := evalRaw(t, raw)
-		if got != False {
-			t.Errorf("%q = %v, want FALSE", raw, got)
+	cases := []struct {
+		raw                string
+		faithful, repaired Tri
+	}{
+		{"#01 Shrubs", False, True},
+		{"#09 Trees", False, False},
+		{"#TC Trees GR05", False, False},
+	}
+	for _, c := range cases {
+		if got, _, _ := evalRawIn(t, Faithful, c.raw); got != c.faithful {
+			t.Errorf("faithful: %q = %v, want %v", c.raw, got, c.faithful)
+		}
+		if got, _, _ := evalRawIn(t, Repaired, c.raw); got != c.repaired {
+			t.Errorf("repaired: %q = %v, want %v", c.raw, got, c.repaired)
 		}
 	}
 }

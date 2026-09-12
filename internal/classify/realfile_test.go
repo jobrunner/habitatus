@@ -4,15 +4,18 @@ import (
 	"os"
 	"testing"
 
+	"github.com/jobrunner/habitatus/internal/esy"
 	"github.com/jobrunner/habitatus/internal/rulepack"
 )
 
 // TestReachabilityRealFile pins the headline figure the review verified
-// independently: against the real 2025-10-03 rule file, exactly 100 of the
-// 312 rules are structurally unreachable (every satisfying assignment needs
-// an "#NN Group" expression upstream forces to FALSE), and the reachable
-// set correctly includes some rules while excluding whole known-defective
-// blocks. Nothing else in the committed test suite exercises reach()/
+// independently: against the real 2025-10-03 rule file in esy.Faithful,
+// exactly 100 of the 312 rules are structurally unreachable (every
+// satisfying assignment needs an "#NN Group" expression v1.2 forces to
+// FALSE), and the reachable set correctly includes some rules while
+// excluding whole known-defective blocks. In esy.Repaired the same 100 are
+// reachable again — that number collapsing to zero is the sharpest evidence
+// that the mode does what it claims. Nothing else in the committed test suite exercises reach()/
 // ruleReachable() on the real, deeply nested And/Or/Not formulas — the unit
 // tests cover single-leaf and simple two-node cases only — so this is the
 // one place a regression in the tree walk over real-world formula shapes
@@ -36,10 +39,18 @@ func TestReachabilityRealFile(t *testing.T) {
 		t.Fatalf("got %d rules, want 312", len(pack.Rules))
 	}
 
-	svc := NewService(pack, nil, nil)
+	svc := NewService(pack, nil, nil, esy.Faithful)
 
 	if len(svc.unreachable) != 100 {
-		t.Errorf("got %d unreachable labels, want 100: %v", len(svc.unreachable), svc.unreachable)
+		t.Errorf("faithful: got %d unreachable labels, want 100: %v", len(svc.unreachable), svc.unreachable)
+	}
+
+	// In repaired mode nothing pins an expression to FALSE, so no rule is
+	// structurally unreachable at all.
+	repaired := NewService(pack, nil, nil, esy.Repaired)
+	if len(repaired.unreachable) != 0 {
+		t.Errorf("repaired: got %d unreachable labels, want 0: %v",
+			len(repaired.unreachable), repaired.unreachable)
 	}
 
 	// The upstream defect that forces "#NN Group" expressions to FALSE
@@ -62,7 +73,7 @@ func TestReachabilityRealFile(t *testing.T) {
 		"U71", "U71!", "U72",
 	} {
 		if !svc.unreachable[label] {
-			t.Errorf("%q is in the grassland/sparsely-vegetated block killed by the upstream defect, must be unreachable", label)
+			t.Errorf("faithful: %q is in the grassland/sparsely-vegetated block killed by the upstream defect, must be unreachable", label)
 		}
 	}
 

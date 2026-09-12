@@ -21,8 +21,45 @@ import (
 // ESy v1.2 run over the bundled Tuexen-Archiv data. The fixtures are produced
 // by `make fixtures`, which drives the upstream code without modifying it; see
 // spike/resy/README.md.
+//
+// There are two fixture sets, one per evaluation semantics, and each mode is
+// compared against its own oracle:
+//
+//   - testdata/golden          upstream v1.2 exactly as shipped   -> esy.Faithful
+//   - testdata/golden-repaired the same tree with the two lines of
+//     step 8 swapped, i.e. ESy up to v1.1 -> esy.Repaired
+//
+// Both must sit at zero mismatches. Two semantics are two things that can
+// drift apart; each having its own oracle is what makes drift visible instead
+// of plausible.
 
-const goldenDir = "../../testdata/golden"
+// variant is one (fixture set, mode) pair. The subtest names are "faithful"
+// and "repaired", so `-run 'TestGolden.*/repaired'` runs one of them.
+type variant struct {
+	name string
+	dir  string
+	mode esy.Mode
+}
+
+var variants = []variant{
+	{"faithful", "../../testdata/golden", esy.Faithful},
+	{"repaired", "../../testdata/golden-repaired", esy.Repaired},
+}
+
+// eachVariant runs fn for every fixture set that is present. A missing set is
+// skipped, not failed: `make fixtures` produces both, but a working copy may
+// legitimately hold only one.
+func eachVariant(t *testing.T, fn func(t *testing.T, v variant)) {
+	t.Helper()
+	for _, v := range variants {
+		t.Run(v.name, func(t *testing.T) {
+			if _, err := os.Stat(filepath.Join(v.dir, "cases.jsonl")); err != nil {
+				t.Skipf("no %s fixtures; run `make fixtures`", v.name)
+			}
+			fn(t, v)
+		})
+	}
+}
 
 type goldenCase struct {
 	ID      int `json:"id"`
@@ -51,13 +88,13 @@ type intermediate struct {
 
 // loadPack parses the rule file the fixtures were generated from, after
 // checking that it IS that file.
-func loadPack(t *testing.T) *rulepack.Pack {
+func loadPack(t *testing.T, v variant) *rulepack.Pack {
 	t.Helper()
 	esyFile := os.Getenv("ESY_FILE")
 	if esyFile == "" {
 		t.Skip("ESY_FILE not set")
 	}
-	requireFreshFixtures(t, esyFile)
+	requireFreshFixtures(t, v, esyFile)
 	f, err := os.Open(esyFile)
 	if err != nil {
 		t.Fatal(err)
@@ -71,43 +108,53 @@ func loadPack(t *testing.T) *rulepack.Pack {
 }
 
 // requireFreshFixtures fails early when the fixtures were generated from a
-// different rule file or a different upstream commit than the one in play.
-// Without this a stale fixture set produces thousands of mismatches that read
-// like a port regression, which is the opposite of what rulepack.sha256 and
-// upstream.commit are recorded for.
-func requireFreshFixtures(t *testing.T, esyFile string) {
+// different rule file, a different upstream commit, or -- since there are two
+// of them -- the wrong oracle. Without this a stale fixture set produces
+// thousands of mismatches that read like a port regression, which is the
+// opposite of what rulepack.sha256 and upstream.commit are recorded for; and
+// a fixture set generated from an unpatched copy would make the repaired
+// golden master pass for the wrong reason.
+func requireFreshFixtures(t *testing.T, v variant, esyFile string) {
 	t.Helper()
 	const regen = "the fixtures are stale; regenerate them with `make fixtures`"
 
-	meta := fixtureMeta(t)
+	dir := v.dir
+	meta := fixtureMeta(t, dir)
 
-	if want, got := fixtureLine(t, "rulepack.sha256"), fileSHA256(t, esyFile); want != got {
+	if meta.Mode != v.name {
+		t.Fatalf("%s holds fixtures for the %q semantics, but is compared in %q mode; "+
+			"regenerate with `make fixtures`", dir, meta.Mode, v.name)
+	}
+	if want, got := fixtureLine(t, dir, "rulepack.sha256"), fileSHA256(t, esyFile); want != got {
 		t.Fatalf("%s\nESY_FILE %s\n  has SHA-256 %s\n  fixtures were built from %s (%s)",
 			regen, esyFile, got, want, meta.ESYFile)
 	}
-	if want, got := fixtureLine(t, "upstream.commit"), meta.UpstreamCommit; want != got {
+	if want, got := fixtureLine(t, dir, "upstream.commit"), meta.UpstreamCommit; want != got {
 		t.Fatalf("%s\nupstream.commit is %s but meta.json records %s", regen, want, got)
 	}
 }
 
 // goldenMeta is the fixture manifest written by `make fixtures`.
 type goldenMeta struct {
-	NPlots         int    `json:"n_plots"`
+	NPlots int `json:"n_plots"`
+	// Mode is the semantics the generating R tree implemented, read off its
+	// source by generate-fixtures.R rather than taken on trust.
+	Mode           string `json:"mode"`
 	UpstreamCommit string `json:"upstream_commit"`
 	ESYFile        string `json:"esy_file"`
 }
 
-func fixtureMeta(t *testing.T) goldenMeta {
+func fixtureMeta(t *testing.T, dir string) goldenMeta {
 	t.Helper()
 	var m goldenMeta
-	readJSON(t, "meta.json", &m)
+	readJSON(t, dir, "meta.json", &m)
 	return m
 }
 
 // fixtureLine reads a fixture file holding a single value.
-func fixtureLine(t *testing.T, name string) string {
+func fixtureLine(t *testing.T, dir, name string) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(goldenDir, name))
+	b, err := os.ReadFile(filepath.Join(dir, name))
 	if err != nil {
 		t.Fatalf("%s: %v (run `make fixtures`)", name, err)
 	}
@@ -128,17 +175,10 @@ func fileSHA256(t *testing.T, path string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-func requireFixtures(t *testing.T) {
-	t.Helper()
-	if _, err := os.Stat(filepath.Join(goldenDir, "cases.jsonl")); err != nil {
-		t.Skip("no fixtures; run `make fixtures`")
-	}
-}
-
 // scanJSONL reads a JSONL file line by line into T.
-func scanJSONL[T any](t *testing.T, name string, fn func(T)) {
+func scanJSONL[T any](t *testing.T, dir, name string, fn func(T)) {
 	t.Helper()
-	f, err := os.Open(filepath.Join(goldenDir, name))
+	f, err := os.Open(filepath.Join(dir, name))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,9 +198,9 @@ func scanJSONL[T any](t *testing.T, name string, fn func(T)) {
 }
 
 // readJSON reads one whole JSON file from the fixture directory.
-func readJSON(t *testing.T, name string, v any) {
+func readJSON(t *testing.T, dir, name string, v any) {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(goldenDir, name))
+	b, err := os.ReadFile(filepath.Join(dir, name))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,18 +221,21 @@ func plotOf(c goldenCase, pack *rulepack.Pack) esy.Plot {
 }
 
 func TestGoldenMaster(t *testing.T) {
-	requireFixtures(t)
-	pack := loadPack(t)
-	env := esy.Env{Groups: pack.Groups}
+	eachVariant(t, testGoldenMaster)
+}
+
+func testGoldenMaster(t *testing.T, v variant) {
+	pack := loadPack(t, v)
+	env := esy.Env{Groups: pack.Groups, Mode: v.mode}
 
 	expected := map[int]goldenExpect{}
-	scanJSONL(t, "expected.jsonl", func(e goldenExpect) { expected[e.ID] = e })
+	scanJSONL(t, v.dir, "expected.jsonl", func(e goldenExpect) { expected[e.ID] = e })
 	if len(expected) == 0 {
 		t.Fatal("expected.jsonl is empty")
 	}
 
 	var total, winnerBad, matchBad int
-	scanJSONL(t, "cases.jsonl", func(c goldenCase) {
+	scanJSONL(t, v.dir, "cases.jsonl", func(c goldenCase) {
 		want, ok := expected[c.ID]
 		if !ok {
 			t.Fatalf("plot %d has no expectation", c.ID)
@@ -225,7 +268,7 @@ func TestGoldenMaster(t *testing.T) {
 	// this, because the loop simply sees fewer plots. The fixture set is the
 	// evidence behind the port's central claim, so assert its size against two
 	// independent records — the expectation file and the manifest.
-	meta := fixtureMeta(t)
+	meta := fixtureMeta(t, v.dir)
 	if total != len(expected) || total != meta.NPlots {
 		t.Fatalf("compared %d plots, but expected.jsonl holds %d and meta.json records %d; "+
 			"the fixture set is incomplete — regenerate it with `make fixtures`",
@@ -249,15 +292,18 @@ func TestGoldenMaster(t *testing.T) {
 // bodies of a formula left to right and so does the Go parser, and none of
 // upstream's rewrites changes how many there are.
 func TestGoldenExpressions(t *testing.T) {
-	requireFixtures(t)
-	pack := loadPack(t)
-	env := esy.Env{Groups: pack.Groups}
+	eachVariant(t, testGoldenExpressions)
+}
+
+func testGoldenExpressions(t *testing.T, v variant) {
+	pack := loadPack(t, v)
+	env := esy.Env{Groups: pack.Groups, Mode: v.mode}
 
 	var ruleExprs []struct {
 		Label string `json:"label"`
 		Exprs []int  `json:"exprs"`
 	}
-	readJSON(t, "rule-exprs.json", &ruleExprs)
+	readJSON(t, v.dir, "rule-exprs.json", &ruleExprs)
 	// Matched by position, not by label: twelve rules share the label "T3M".
 	if len(ruleExprs) != len(pack.Rules) {
 		t.Fatalf("%d rules in R, %d here", len(ruleExprs), len(pack.Rules))
@@ -269,10 +315,10 @@ func TestGoldenExpressions(t *testing.T) {
 	}
 
 	cases := map[int]goldenCase{}
-	scanJSONL(t, "cases.jsonl", func(c goldenCase) { cases[c.ID] = c })
+	scanJSONL(t, v.dir, "cases.jsonl", func(c goldenCase) { cases[c.ID] = c })
 
 	var plots, compared, bad int
-	scanJSONL(t, "intermediates.jsonl", func(im intermediate) {
+	scanJSONL(t, v.dir, "intermediates.jsonl", func(im intermediate) {
 		c, ok := cases[im.ID]
 		if !ok {
 			t.Fatalf("intermediate for unknown plot %d", im.ID)
@@ -328,11 +374,14 @@ func leavesOf(n rulepack.Node) []rulepack.Leaf {
 // that the synthetic generator missed it; it is reported, not failed, because
 // the upstream run is the authority on what is reachable.
 func TestGoldenRuleCoverage(t *testing.T) {
-	requireFixtures(t)
-	pack := loadPack(t)
+	eachVariant(t, testGoldenRuleCoverage)
+}
+
+func testGoldenRuleCoverage(t *testing.T, v variant) {
+	pack := loadPack(t, v)
 
 	fired := map[string]bool{}
-	scanJSONL(t, "expected.jsonl", func(e goldenExpect) {
+	scanJSONL(t, v.dir, "expected.jsonl", func(e goldenExpect) {
 		for _, m := range e.Matches {
 			fired[m] = true
 		}
@@ -343,7 +392,7 @@ func TestGoldenRuleCoverage(t *testing.T) {
 		if fired[r.Label()] {
 			continue
 		}
-		if needsAlwaysFalse(r.Formula) {
+		if v.mode == esy.Faithful && needsAlwaysFalse(r.Formula) {
 			unreachable = append(unreachable, r.Label())
 		} else {
 			silent = append(silent, r.Label())

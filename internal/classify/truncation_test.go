@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jobrunner/habitatus/internal/esy"
 	"github.com/jobrunner/habitatus/internal/rulepack"
 	"github.com/jobrunner/habitatus/internal/taxa"
 )
@@ -54,17 +55,21 @@ SECTION 4: Similarity
 SECTION 4: End
 `
 
-func newStatsTestService(t *testing.T) *Service {
+func newStatsTestService(t *testing.T, mode esy.Mode) *Service {
 	t.Helper()
 	pack, err := rulepack.Load(strings.NewReader(statsPack))
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewService(pack, nil, map[string]string{"rulepack": "test"})
+	return NewService(pack, nil, map[string]string{"rulepack": "test"}, mode)
 }
 
+// TestStatsSeparatesUnreachableFromNeverFired uses esy.Faithful: the
+// separation it checks only exists in the mode that pins "#NN Group"
+// expressions to FALSE. TestStatsRepairedHasNoUnreachableRules is its
+// counterpart.
 func TestStatsSeparatesUnreachableFromNeverFired(t *testing.T) {
-	s := newStatsTestService(t)
+	s := newStatsTestService(t, esy.Faithful)
 	if _, err := s.Classify(Request{
 		Records:  []taxa.Record{{Name: "Fagus sylvatica", Cover: 30}},
 		Backbone: "euro+med",
@@ -111,7 +116,10 @@ func TestStatsCollapsesDuplicateLabelsAndPrefersReachable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := NewService(pack, nil, nil)
+	// Faithful: the point of this pack is that one of the two definitions
+	// sharing the label is structurally unreachable, which only faithful
+	// makes it.
+	s := NewService(pack, nil, nil, esy.Faithful)
 	st := s.Stats()
 
 	for _, label := range st.Unreachable {
@@ -130,8 +138,30 @@ func TestStatsCollapsesDuplicateLabelsAndPrefersReachable(t *testing.T) {
 	}
 }
 
+// TestStatsRepairedHasNoUnreachableRules pins the mode's effect on the
+// operational figures: T1J stops being unreachable, because "#02 Trees" now
+// carries a real truth value. It still does not fire — the plot holds one
+// tree species, not two — so it moves from Unreachable to NeverFired.
+func TestStatsRepairedHasNoUnreachableRules(t *testing.T) {
+	s := newStatsTestService(t, esy.Repaired)
+	if _, err := s.Classify(Request{
+		Records:  []taxa.Record{{Name: "Fagus sylvatica", Cover: 30}},
+		Backbone: "euro+med",
+		Header:   validHeader(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	st := s.Stats()
+	if len(st.Unreachable) != 0 {
+		t.Errorf("Unreachable = %v, want none in repaired mode", st.Unreachable)
+	}
+	if len(st.NeverFired) != 2 || st.NeverFired[0] != "T1J" || st.NeverFired[1] != "T1K" {
+		t.Errorf("NeverFired = %v, want [T1J T1K]", st.NeverFired)
+	}
+}
+
 func TestStatsCountsQuestionAndPlus(t *testing.T) {
-	s := newStatsTestService(t)
+	s := newStatsTestService(t, esy.Repaired)
 	// No taxa satisfy any rule, so the plot answers "?".
 	if _, err := s.Classify(Request{
 		Records:  []taxa.Record{{Name: "Fagus sylvatica", Cover: 1}},

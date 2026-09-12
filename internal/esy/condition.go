@@ -20,8 +20,12 @@ type Plot struct {
 // Env holds everything the evaluator needs besides the plot. Groups is keyed
 // exactly as ParseGroups produces it: the qualifier, when the atom carries
 // one, is part of the key ("+01 MA211-...").
+//
+// Mode selects which of the two evaluation semantics applies; see Mode. Its
+// zero value is Repaired.
 type Env struct {
 	Groups map[string][]string
+	Mode   Mode
 }
 
 // EvalExpr evaluates one membership expression and returns its truth value
@@ -48,10 +52,16 @@ type Env struct {
 func (e Env) EvalExpr(x rulepack.Expr, p Plot) (Tri, float64, float64) {
 	if x.AlwaysFalse {
 		// Upstream never compares this expression: it stays a single numeric
-		// condition and step 8 replaces every numeric result with FALSE. The
-		// left value is still computed and returned, because the golden
-		// master compares condition values as well as truth values.
-		return False, e.operandValue(x.Left, p, x), 0
+		// condition. In faithful mode step 8 replaces every numeric result
+		// with FALSE; in repaired mode R's own coercion applies, 0 being
+		// FALSE and anything else TRUE. See Mode. The numeric value is
+		// computed in both modes — it is the same value upstream puts in
+		// plot.cond either way, and the diagnosis tooling compares it.
+		left := e.operandValue(x.Left, p, x)
+		if e.Mode == Repaired {
+			return FromBool(left != 0), left, 0
+		}
+		return False, left, 0
 	}
 	left := e.operandValue(x.Left, p, x)
 	if x.Op == "" {
