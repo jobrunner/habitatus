@@ -9,6 +9,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 
@@ -242,6 +243,10 @@ func (s *Server) Serve(in io.Reader, out io.Writer) error {
 
 func (s *Server) dispatch(req rpcRequest) rpcResponse {
 	res := rpcResponse{JSONRPC: "2.0", ID: req.ID}
+	if req.JSONRPC != "2.0" {
+		res.Error = &rpcError{Code: codeInvalidRequest, Message: fmt.Sprintf("invalid request: jsonrpc must be %q, got %q", "2.0", req.JSONRPC)}
+		return res
+	}
 	switch req.Method {
 	case "initialize":
 		res.Result = map[string]any{

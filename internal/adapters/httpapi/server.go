@@ -77,6 +77,10 @@ func NewServer(s *classify.Service) http.Handler {
 			writeError(w, http.StatusBadRequest, "invalid JSON body")
 			return
 		}
+		if dec.More() {
+			writeError(w, http.StatusBadRequest, "request body must contain exactly one JSON object")
+			return
+		}
 
 		recs := make([]taxa.Record, len(req.Records))
 		for i, rr := range req.Records {
