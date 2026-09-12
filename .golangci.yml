@@ -1,0 +1,195 @@
+# golangci-lint configuration for habitatus.
+# https://golangci-lint.run/docs/configuration/
+
+version: "2"
+
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+linters:
+  enable:
+    # Standard
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+    # Additional
+    - bodyclose
+    - dupl
+    - gocognit
+    - goconst
+    - gocritic
+    - gocyclo
+    - godot
+    - gosec
+    - misspell
+    - nakedret
+    - nilerr
+    - noctx
+    - prealloc
+    - revive
+    - unconvert
+    - unparam
+    - whitespace
+
+    # Architecture harness — the layering the design spec describes is not a
+    # convention here, it is a gate.
+    - depguard
+
+    # Debt harness — a //nolint must name its linter and say why.
+    - nolintlint
+
+  settings:
+    # The import direction habitatus is built on, innermost first:
+    #
+    #   cover                        (leaf: pure arithmetic)
+    #   taxa      → cover
+    #   rulepack  → (nothing internal: the parser is independent of everything)
+    #   esy       → rulepack, taxa, cover
+    #   classify  → esy, rulepack, taxa
+    #   adapters  → classify, taxa          (never a sibling adapter)
+    #   cmd       → everything              (composition root)
+    #
+    # Each rule below denies the inward and sideways edges. Verified against
+    # `go list -deps=false` at the time of writing: the graph matches exactly.
+    depguard:
+      rules:
+        cover:
+          files: ["**/internal/cover/**"]
+          deny:
+            - { pkg: github.com/jobrunner/habitatus/internal, desc: "cover is the leaf — it computes the Jennings-Fischer union and knows nothing else" }
+        taxa:
+          files: ["**/internal/taxa/**"]
+          deny:
+            - { pkg: github.com/jobrunner/habitatus/internal/esy, desc: "name resolution runs before evaluation and must not depend on it" }
+            - { pkg: github.com/jobrunner/habitatus/internal/classify, desc: "taxa must not know the use case" }
+            - { pkg: github.com/jobrunner/habitatus/internal/adapters, desc: "taxa must not know a transport" }
+        rulepack:
+          files: ["**/internal/rulepack/**"]
+          deny:
+            - { pkg: github.com/jobrunner/habitatus/internal/esy, desc: "the parser produces the rule model; it must not evaluate it" }
+            - { pkg: github.com/jobrunner/habitatus/internal/taxa }
+            - { pkg: github.com/jobrunner/habitatus/internal/classify }
+            - { pkg: github.com/jobrunner/habitatus/internal/adapters }
+            - { pkg: github.com/jobrunner/habitatus/internal/cover, desc: "cover merging belongs to resolution, not to parsing" }
+        esy:
+          files: ["**/internal/esy/**"]
+          deny:
+            - { pkg: github.com/jobrunner/habitatus/internal/classify, desc: "the evaluator must not know the use case that drives it" }
+            - { pkg: github.com/jobrunner/habitatus/internal/adapters, desc: "the evaluator must not know a transport" }
+        classify:
+          files: ["**/internal/classify/**"]
+          deny:
+            - { pkg: github.com/jobrunner/habitatus/internal/adapters, desc: "the use case must not know HTTP or MCP; the dependency points the other way" }
+        httpapi:
+          files: ["**/internal/adapters/httpapi/**"]
+          deny:
+            - { pkg: github.com/jobrunner/habitatus/internal/adapters/mcpapi, desc: "no adapter-to-adapter coupling; shared logic belongs in classify" }
+        mcpapi:
+          files: ["**/internal/adapters/mcpapi/**"]
+          deny:
+            - { pkg: github.com/jobrunner/habitatus/internal/adapters/httpapi, desc: "no adapter-to-adapter coupling; shared logic belongs in classify" }
+
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+      allow-unused: false
+
+    gocyclo:
+      min-complexity: 16
+
+    gocognit:
+      min-complexity: 20
+
+    dupl:
+      threshold: 100
+
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+
+    # The project's prose is British English throughout ("behaviour port" is a
+    # term of art here), so US spellings are the drift, not the target.
+    misspell:
+      locale: UK
+      # MCP wire identifiers ("initialize", "notifications/initialized") are
+      # protocol tokens, not prose — they are spelled the way the spec spells
+      # them or the handshake fails.
+      ignore-rules:
+        - initialize
+        - initialized
+        # Latin binomials are not English prose: "Viola tricolor" is the name
+        # of the species, not a colour.
+        - tricolor
+
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+      disabled-checks:
+        - whyNoLint
+        - hugeParam
+        - rangeValCopy
+        - paramTypeCombine
+        - octalLiteral
+        - httpNoBody
+        # The evaluator returns (truth, left value, right value) throughout;
+        # naming those results collides with the locals that compute them.
+        - unnamedResult
+
+    gosec:
+      excludes:
+        - G104
+
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: exported
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: var-declaration
+        - name: var-naming
+
+  exclusions:
+    rules:
+      # Tests are the test composition root: they may wire real implementations
+      # across layers, repeat literals, and build long table cases.
+      # The MCP tool schema is a JSON-Schema document written as Go literals.
+      # Its repeated "string"/"object"/"properties" keys are the schema
+      # vocabulary; hoisting them into constants adds clutter without meaning.
+      - path: internal/adapters/mcpapi/server\.go
+        linters:
+          - goconst
+
+      - path: _test\.go
+        linters:
+          - dupl
+          - gosec
+          - gocyclo
+          - gocognit
+          - goconst
+          - noctx
+          - depguard
+
+output:
+  show-stats: true
