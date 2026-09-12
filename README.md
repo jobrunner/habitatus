@@ -52,14 +52,51 @@ Voraussetzungen:
   Für den `repaired`-Satz patcht `spike/resy/patch-upstream.sh` eine **Kopie**
   des Upstreams unter `build/`; der Klon selbst bleibt unangetastet.
 
-## CI
+## Qualitäts-Harness
 
-Die GitHub-Action (`.github/workflows/ci.yml`) führt `go build ./...`,
-`go vet ./...`, eine `gofmt -l .`-Prüfung, `go test ./...` und `make check`
-aus — die `ESY_FILE`-gegateten Real-File-Tests laufen dort jetzt mit, weil die
-Regeldatei vendoriert ist. Nur `make golden` bleibt draußen: es braucht
-zusätzlich R und den Upstream-Klon und dauert rund zehn Minuten. Dafür ist
-das lokale Pre-Merge-Gate oben zuständig.
+`main` ist durch ein Ruleset geschützt: gemergt wird nur, wenn **alle**
+Pflicht-Checks grün sind. Lokal entspricht dem `make quality`; die einzelnen
+Ziele lassen sich auch einzeln laufen.
+
+| Check | Werkzeug | Was er verhindert |
+|---|---|---|
+| Lint | golangci-lint (25 Linter) | die üblichen Fehlerklassen |
+| Lint / depguard | golangci-lint | Verletzung der Schichtgrenzen aus der Spec — `cover` ← `taxa` ← `esy` ← `classify` ← Adapter, keine Adapter-Querkopplung |
+| Test | `go test -race` + Real-File-Tests | Regression gegen die echte Regeldatei |
+| Test / Coverage-Ratchet | `scripts/coverage-gate.sh` | stilles Absinken der Testabdeckung je Paket |
+| Benchmarks | `go test -bench` + benchstat | Bit-Rot der Benchmarks; der Zeitvergleich ist Lesestoff, kein Gate |
+| Fuzz (smoke) | `go test -fuzz`, 30 s je Ziel | Panics der Parser auf fremden Regeldateien |
+| Security | govulncheck | bekannte Schwachstellen in Go-Code |
+| License Compliance | go-licenses | eine Abhängigkeit unter unpassender Lizenz |
+| SBOM | syft (SPDX + CycloneDX), grype | fehlende Stückliste; bekannte Lücken darin |
+| Secret Scan | gitleaks | Zugangsdaten in der Historie |
+| Architecture | `go mod tidy -diff`, Abhängigkeitsfreiheit, Regeldatei-Prüfsumme | eine unbemerkt eingeführte Abhängigkeit; eine stille Änderung der vendorierten Regeldatei, die jede Verifikationsaussage entwertet |
+| Build | `go build`, `gofmt -l` | nicht übersetzbarer oder unformatierter Stand |
+| Docker Lint | hadolint | Fehler im Dockerfile |
+| Actions Lint | actionlint | Fehler und Script-Injection in den Workflows |
+| Docker Build | Buildx + Smoke-Test | ein Image, das zwar baut, aber unter `--read-only --cap-drop=ALL` nicht antwortet |
+| Docker Security Scan | Trivy | behebbare CRITICAL/HIGH im Image |
+| CodeCharta | ccsh + `scripts/codecharta-ratchet.py` | Komplexitätswachstum je Datei **und** je Funktion; neue komplexe und ungetestete Dateien |
+| commitlint | commitlint | nicht-konventionelle Commits, an denen release-please die Version falsch ableitet |
+
+Nicht bei jedem PR, sondern nach Zeitplan: Fuzzing über zehn Minuten je Ziel
+(nächtlich), Mutationstests des Evaluators mit gremlins (wöchentlich und bei
+Änderungen an `internal/esy/`), sowie govulncheck und ein Trivy-Scan des Images
+gegen neu veröffentlichte CVEs (wöchentlich).
+
+`make golden` bleibt bewusst draußen: es braucht R, den Upstream-Klon und rund
+zehn Minuten je Modus. Es ist das **lokale** Pre-Merge-Gate oben — und das
+schärfste, das dieses Projekt hat.
+
+### Zwei Ausnahmen, die benannt gehören
+
+Die Benchmarks messen, sie urteilen nicht: geteilte CI-Runner schwanken zu
+stark für eine belastbare Schwelle pro PR. Der benchstat-Vergleich gegen den
+Base-Branch landet in der Job-Zusammenfassung und ist für Menschen gedacht.
+
+Der Container-Scan blockiert nur bei **behebbaren** Funden. Eine CVE ohne
+Upstream-Fix lässt sich in einem PR nicht beheben; sie steht im Security-Tab,
+statt jeden Merge zu blockieren.
 
 ## Container
 
