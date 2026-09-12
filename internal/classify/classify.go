@@ -1,6 +1,7 @@
 package classify
 
 import (
+	"math"
 	"sort"
 	"sync"
 
@@ -173,6 +174,9 @@ func (s *Service) Classify(req Request) (Response, error) {
 		return Response{}, invalidf("at least one taxon record is required")
 	}
 	for _, r := range req.Records {
+		if math.IsNaN(r.Cover) || math.IsInf(r.Cover, 0) {
+			return Response{}, invalidf("cover for %q is %v, must be a finite number", r.Name, r.Cover)
+		}
 		if r.Cover <= 0 || r.Cover > 100 {
 			return Response{}, invalidf("cover for %q is %v, must be in (0, 100]", r.Name, r.Cover)
 		}

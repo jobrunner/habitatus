@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"encoding/csv"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -133,18 +134,34 @@ func ValidateHeader(h map[string]string) error {
 	if _, err := strconv.Atoi(h["Ecoreg"]); err != nil {
 		return invalidf("Ecoreg %q is not an integer ECO_ID", h["Ecoreg"])
 	}
+	var alt, lat, lon float64
 	for _, f := range []string{"Altitude (m)", "DEG_LAT", "DEG_LON"} {
-		if _, err := strconv.ParseFloat(h[f], 64); err != nil {
+		v, err := strconv.ParseFloat(h[f], 64)
+		if err != nil {
 			return invalidf("%s %q is not a number", f, h[f])
 		}
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return invalidf("%s %q must be a finite number", f, h[f])
+		}
+		switch f {
+		case "Altitude (m)":
+			alt = v
+		case "DEG_LAT":
+			lat = v
+		case "DEG_LON":
+			lon = v
+		}
 	}
-	lat, _ := strconv.ParseFloat(h["DEG_LAT"], 64)
-	lon, _ := strconv.ParseFloat(h["DEG_LON"], 64)
 	if lat < -90 || lat > 90 {
 		return invalidf("DEG_LAT %v is out of range", lat)
 	}
 	if lon < -180 || lon > 180 {
 		return invalidf("DEG_LON %v is out of range", lon)
+	}
+	// -500 to 9000 metres is generous — the rule file's own thresholds top
+	// out at 1500 — but still catches a transposed or garbage value.
+	if alt < -500 || alt > 9000 {
+		return invalidf("Altitude (m) %v is out of range", alt)
 	}
 	return nil
 }
