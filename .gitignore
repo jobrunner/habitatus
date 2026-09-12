@@ -8,3 +8,6 @@ spike/ESy-upstream
 # Patched copy of the upstream tree, built by spike/resy/patch-upstream.sh to
 # generate the repaired golden master. Derived, never edited by hand.
 build/
+
+# Harness-verwaltete Worktrees
+.claude/worktrees/
