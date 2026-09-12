@@ -55,7 +55,11 @@ Voraussetzungen:
 ## Qualitäts-Harness
 
 `main` ist durch das Ruleset `protect-main` geschützt: gemergt wird nur, wenn
-**alle 18** Pflicht-Checks grün sind. `make quality` deckt davon die Gates ab,
+**alle 18** Pflicht-Checks grün sind — plus CodeQL, das über die
+`code_scanning`-Regel des Rulesets greift statt über die Check-Liste.
+Nicht erzwungen wird `gremlins`: der Job ist auf `internal/esy/**` gefiltert
+und würde jeden PR, der diesen Pfad nicht berührt, dauerhaft auf „pending"
+stehen lassen. `make quality` deckt davon die Gates ab,
 die nichts außer Go brauchen — **nicht** `sbom` (braucht syft), `codecharta`
 (braucht ccsh und eine JRE) und `golden` (elf Minuten). Diese drei laufen in
 der CI ohnehin; lokal gezielt vor einer Änderung, die sie betrifft.
