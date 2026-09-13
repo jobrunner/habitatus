@@ -28,8 +28,14 @@ func ParseOrigins(s string) ([]string, error) {
 			continue
 		}
 		if o != "*" {
+			// An origin is scheme://host[:port] and nothing else. url.Parse
+			// happily accepts a path, a query, a fragment or userinfo, and
+			// such a value can never equal the Origin a browser sends — it
+			// would sit in the allowlist looking configured while matching
+			// nothing, which is worse than being rejected.
 			u, err := url.Parse(o)
-			if err != nil || u.Scheme == "" || u.Host == "" || u.Path != "" {
+			if err != nil || u.Scheme == "" || u.Host == "" || u.Path != "" ||
+				u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.User != nil {
 				return nil, fmt.Errorf("origin %q is not scheme://host[:port]", o)
 			}
 		}
