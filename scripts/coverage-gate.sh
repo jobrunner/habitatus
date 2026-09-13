@@ -50,6 +50,14 @@ printf -- "------------------------------------------------------------\n"
 while read -r pkg floor; do
   [ -z "$pkg" ] && continue
   case "$pkg" in \#*) continue ;; esac
+  # Validate the floor before using it. awk compares an unparseable value as 0
+  # and a negative one as itself, so `internal/esy -1` or a stray character
+  # would let ANY coverage pass — a typo would switch the ratchet off with no
+  # sign that it had. A bad floor is a configuration error, not a pass.
+  if ! awk -v f="$floor" 'BEGIN{exit !(f ~ /^[0-9]+(\.[0-9]+)?$/ && f+0 <= 100)}'; then
+    echo "coverage-gate: invalid floor for $pkg: '$floor' (expected a number between 0 and 100)" >&2
+    exit 2
+  fi
   read -r c t <<<"$(awk -v p="$pkg" '$1==p {print $2, $3}' "$BYPKG")"
   if [ -z "${t:-}" ] || [ "${t:-0}" -eq 0 ]; then
     printf "%-42s %8s %7s  NO DATA\n" "$pkg" "-" "$floor"; fail=1; continue
