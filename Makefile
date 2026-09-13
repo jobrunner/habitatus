@@ -94,7 +94,7 @@ docker-build:
 # to be operated: read-only root fs, no capabilities, no privilege
 # escalation. If this doesn't work, the Dockerfile is wrong, not the flags.
 docker-run:
-	docker run --rm -p 8080:8080 \
+	docker run --rm -p 127.0.0.1:8080:8080 \
 	  --read-only --cap-drop=ALL --security-opt=no-new-privileges \
 	  habitatus:latest
 

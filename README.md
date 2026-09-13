@@ -71,13 +71,13 @@ der CI ohnehin; lokal gezielt vor einer Änderung, die sie betrifft.
 | Test | `go test -race` + Real-File-Tests | Regression gegen die echte Regeldatei |
 | Test / Coverage-Ratchet | `scripts/coverage-gate.sh` | stilles Absinken der Testabdeckung je Paket |
 | Benchmarks | `go test -bench` + benchstat | Bit-Rot der Benchmarks; der Zeitvergleich ist Lesestoff, kein Gate |
-| Fuzz (smoke) | `go test -fuzz`, 30 s je Ziel | Panics der Parser auf fremden Regeldateien |
+| Fuzz (smoke) | `go test -fuzz`, 1.000.000 Ausführungen je Ziel | Panics der Parser auf fremden Regeldateien |
 | Security | govulncheck | bekannte Schwachstellen in Go-Code |
 | License Compliance | go-licenses | eine Abhängigkeit unter unpassender Lizenz — erstpartei eingeschlossen, keine Ausnahmen |
 | SBOM | syft (SPDX + CycloneDX), grype | fehlende Stückliste; bekannte Lücken darin |
 | Secret Scan | gitleaks | Zugangsdaten in der Historie |
 | CodeQL | github/codeql-action | Datenflüsse quer durch das Programm — was ein Linter, der je Funktion urteilt, nicht sehen kann |
-| Architecture | `go mod tidy -diff`, Abhängigkeitsfreiheit, Regeldatei-Prüfsumme | eine unbemerkt eingeführte Abhängigkeit; eine stille Änderung der vendorierten Regeldatei, die jede Verifikationsaussage entwertet |
+| Architecture | `go mod tidy -diff`, Abhängigkeitsfreiheit, Regeldatei-Prüfsumme, Ratchet-Basisvergleich | eine unbemerkt eingeführte Abhängigkeit; eine stille Änderung der vendorierten Regeldatei, die jede Verifikationsaussage entwertet; ein im selben PR abgesenkter Floor oder angehobener Komplexitäts-Cap |
 | Build | `go build`, `gofmt -l` | nicht übersetzbarer oder unformatierter Stand |
 | Docker Lint | hadolint | Fehler im Dockerfile |
 | Actions Lint | actionlint | Fehler und Script-Injection in den Workflows |
@@ -120,7 +120,7 @@ make docker-run        # startet es gehärtet: --read-only --cap-drop=ALL
 oder von Hand:
 
 ```sh
-docker run --rm -p 8080:8080   --read-only --cap-drop=ALL --security-opt=no-new-privileges   habitatus:latest
+docker run --rm -p 127.0.0.1:8080:8080   --read-only --cap-drop=ALL --security-opt=no-new-privileges   habitatus:latest
 ```
 
 Das Image enthält die vendorierte Regeldatei unter einem festen Pfad und
@@ -134,12 +134,16 @@ gleichnamige Umgebungsvariable, die wiederum den eingebauten Default
 
 ```sh
 # beide Wege setzen faithful; beide behalten -rules/-addr aus der ENV
-docker run --rm -p 8080:8080 habitatus:latest -mode faithful
-docker run --rm -p 8080:8080 -e HABITATUS_MODE=faithful habitatus:latest
+docker run --rm -p 127.0.0.1:8080:8080 habitatus:latest -mode faithful
+docker run --rm -p 127.0.0.1:8080:8080 -e HABITATUS_MODE=faithful habitatus:latest
 ```
 
 Wer eine andere Regelwerksversion mounten will, setzt `-rules` bzw.
-`HABITATUS_RULES` auf den gemounteten Pfad. Der Container läuft als
+`HABITATUS_RULES` auf den gemounteten Pfad. Alle Beispiele binden bewusst an `127.0.0.1`: Docker schreibt eigene
+iptables-Regeln, und ein schlichtes `8080:8080` veröffentlicht den
+unauthentifizierten Dienst auf allen Interfaces — auch wenn `ufw` es verbietet.
+Die Härtungsflags schützen den Prozess, nicht den Netzzugang, und CORS ist keine
+Zugriffskontrolle. Der Container läuft als
 `nonroot` (uid 65532) — eine gemountete Datei muss für dieses uid lesbar
 sein, sonst scheitert der Start sichtbar mit einer Fehlermeldung, die die
 Datei nennt.
