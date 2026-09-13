@@ -107,7 +107,17 @@ def leaves(node, parts):
     committed baseline keys like 'internal/adapters/...')."""
     p = parts + [node["name"]]
     if node.get("type") == "File":
-        yield "/".join(p[1:]), (node.get("attributes") or {})
+        attrs = node.get("attributes")
+        if attrs is None:
+            attrs = {}
+        elif not isinstance(attrs, dict):
+            # Raised inside the traversal on purpose: main wraps this call and
+            # turns it into exit 2, which is what the contract promises for a
+            # malformed map. Left to `or {}`, a list here would sail past and
+            # blow up later on attrs.get(), outside that handler.
+            raise TypeError(f"{'/'.join(p[1:])}: attributes is "
+                            f"{type(attrs).__name__}, expected an object")
+        yield "/".join(p[1:]), attrs
     for child in node.get("children", []):
         yield from leaves(child, p)
 
