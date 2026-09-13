@@ -14,7 +14,7 @@ GOLDEN_REPAIRED   ?= testdata/golden-repaired
 
 .PHONY: test check fixtures fixtures-faithful fixtures-repaired synthetic \
 	golden golden-faithful golden-repaired clean-fixtures \
-	lint cover bench fuzz mutation licenses sbom codecharta quality
+	lint cover bench fuzz mutation licenses sbom codecharta commitlint quality
 
 test:
 	go test ./...
@@ -173,6 +173,24 @@ codecharta:
 	ccsh merge build/base.cc.json build/git.cc.json build/coverage.cc.json -o build/habitatus.cc.json.gz
 	python3 scripts/codecharta-ratchet.py build/habitatus.cc.json.gz .codecharta-ratchet.json
 
+COMMITLINT_FROM ?= origin/main
+
+# The commit subjects on this branch, against the same rules CI applies.
+# Worth a target rather than discipline: an acronym at the start of a subject
+# ("CORS, off by default", "NaN and a malformed map") reads perfectly well and
+# trips subject-case, and the failure only shows up after a push — twice here,
+# each time costing a history rewrite.
+#
+# The packages go into a gitignored node_modules at the repo root rather than
+# through npx: commitlint resolves `extends` from the config file's own
+# directory, and an npx temp install is not on that path.
+commitlint:
+	@command -v npm >/dev/null 2>&1 || { echo "commitlint: npm not found, skipping"; exit 0; }
+	@[ -x node_modules/.bin/commitlint ] || npm install --no-save --no-audit --no-fund --silent \
+	  @commitlint/cli@19 @commitlint/config-conventional@19
+	@node_modules/.bin/commitlint --config .commitlintrc.yml --from $(COMMITLINT_FROM) --to HEAD \
+	  && echo "commitlint: every subject on this branch is conventional"
+
 # The CI gates that need no tooling beyond Go: lint, tests with the coverage
 # ratchet, the real-file tests, benchmarks, a short fuzz pass and the licence
 # check. Deliberately NOT the same set as CI — `sbom` needs syft, `codecharta`
@@ -180,3 +198,4 @@ codecharta:
 # change that touches what they cover; CI runs all of them regardless.
 quality: lint cover check bench licenses
 	$(MAKE) fuzz FUZZTIME=200000x
+	$(MAKE) commitlint

@@ -16,3 +16,6 @@ build/
 coverage.out
 coverage.info
 sbom.*.json
+
+# Created on demand by `make commitlint`; never committed.
+node_modules/

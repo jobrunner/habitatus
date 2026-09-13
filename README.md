@@ -54,6 +54,12 @@ Voraussetzungen:
 
 ## Qualitäts-Harness
 
+Lokal vor dem Push: `make quality` — es enthält seit zwei Fehlschlägen auch
+`make commitlint`, weil ein Akronym am Satzanfang („CORS, off by default",
+„NaN and a malformed map") sich einwandfrei liest, gegen `subject-case`
+verstößt und erst nach dem Push auffällt. Beide Male kostete das eine
+Umschreibung der Historie.
+
 `main` ist durch das Ruleset `protect-main` geschützt: gemergt wird nur, wenn
 **alle 18** Pflicht-Checks grün sind — plus CodeQL, das über die
 `code_scanning`-Regel des Rulesets greift statt über die Check-Liste.
