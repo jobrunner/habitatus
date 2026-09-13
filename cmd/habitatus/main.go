@@ -227,7 +227,7 @@ func run(log *slog.Logger, cfg config, mode esy.Mode) error {
 	svc := classify.NewService(pack, backbones, versions, mode)
 
 	if mcp {
-		if err := mcpapi.NewServer(svc).Serve(os.Stdin, os.Stdout); err != nil {
+		if err := mcpapi.NewServer(svc, version).Serve(os.Stdin, os.Stdout); err != nil {
 			return errors.New("mcp server stopped: " + err.Error())
 		}
 		return nil

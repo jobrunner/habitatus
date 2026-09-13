@@ -32,7 +32,7 @@ func testServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewServer(classify.NewService(pack, nil, map[string]string{"rulepack": "test"}, esy.Repaired))
+	return NewServer(classify.NewService(pack, nil, map[string]string{"rulepack": "test"}, esy.Repaired), "1.2.3-test")
 }
 
 func decodeResponses(t *testing.T, out *bytes.Buffer) []map[string]any {
@@ -345,5 +345,31 @@ func TestToolsCallUnknownToolReturnsInvalidParams(t *testing.T) {
 	code, _ := errObj["code"].(float64)
 	if code != -32602 {
 		t.Errorf("unknown tool error code = %v, want -32602 (invalid params)", errObj["code"])
+	}
+}
+
+// serverInfo.version must be the build stamp. It was a literal "0.1.0", which
+// every release would have made a lie told to every MCP client.
+func TestInitializeReportsTheBuildVersion(t *testing.T) {
+	var out bytes.Buffer
+	in := `{"jsonrpc":"2.0","id":1,"method":"initialize"}` + "\n"
+	if err := testServer(t).Serve(strings.NewReader(in), &out); err != nil {
+		t.Fatal(err)
+	}
+	resps := decodeResponses(t, &out)
+	if len(resps) != 1 {
+		t.Fatalf("got %d responses, want 1", len(resps))
+	}
+	result, _ := resps[0]["result"].(map[string]any)
+	info, _ := result["serverInfo"].(map[string]any)
+	if got := info["version"]; got != "1.2.3-test" {
+		t.Errorf("serverInfo.version = %v, want the injected build stamp", got)
+	}
+}
+
+// An unstamped local build reports "dev" rather than an empty string.
+func TestUnstampedVersionReportsDev(t *testing.T) {
+	if got := NewServer(nil, "").version; got != "dev" {
+		t.Errorf("version = %q, want \"dev\"", got)
 	}
 }
