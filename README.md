@@ -73,7 +73,7 @@ der CI ohnehin; lokal gezielt vor einer Änderung, die sie betrifft.
 | Benchmarks | `go test -bench` + benchstat | Bit-Rot der Benchmarks; der Zeitvergleich ist Lesestoff, kein Gate |
 | Fuzz (smoke) | `go test -fuzz`, 30 s je Ziel | Panics der Parser auf fremden Regeldateien |
 | Security | govulncheck | bekannte Schwachstellen in Go-Code |
-| License Compliance | go-licenses | eine Abhängigkeit unter unpassender Lizenz |
+| License Compliance | go-licenses | eine Abhängigkeit unter unpassender Lizenz — erstpartei eingeschlossen, keine Ausnahmen |
 | SBOM | syft (SPDX + CycloneDX), grype | fehlende Stückliste; bekannte Lücken darin |
 | Secret Scan | gitleaks | Zugangsdaten in der Historie |
 | CodeQL | github/codeql-action | Datenflüsse quer durch das Programm — was ein Linter, der je Funktion urteilt, nicht sehen kann |
@@ -146,3 +146,15 @@ Datei nennt.
 
 Kein `HEALTHCHECK`: das Image hat weder Shell noch `curl`. Orchestratoren
 sollen stattdessen direkt gegen `GET /health/ready` prüfen.
+
+## Lizenz
+
+Der Code steht unter der **MIT-Lizenz** (`LICENSE`).
+
+Die mitgelieferten **Daten nicht**: `data/esy/EUNIS-ESy-2025-10-03.txt` ist das
+EUNIS-ESy-Regelwerk unter **CC BY 4.0** (Zenodo
+doi:10.5281/zenodo.3841729) — Autoren, geforderte Namensnennung und Prüfsumme
+stehen in `data/esy/ATTRIBUTION.md`. Die Fixtures unter `testdata/golden/` und
+`testdata/golden-repaired/` sind daraus abgeleitet und tragen dieselben
+Bedingungen. Wer habitatus weitergibt, gibt beides weiter und muss die
+Namensnennung mitführen.

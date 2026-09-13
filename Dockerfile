@@ -24,6 +24,10 @@ FROM gcr.io/distroless/static-debian12:nonroot
 
 COPY --from=build /out/habitatus /habitatus
 
+# The software's own licence travels with the binary: an image is a
+# distribution, and MIT requires the notice to accompany it.
+COPY LICENSE /LICENSE
+
 # The vendored ESy rule file (CC BY 4.0 — attribution required, see
 # ATTRIBUTION.md) and its licence/attribution notice, so the image is
 # self-contained: `docker run -p 8080:8080 habitatus` works with no volume
