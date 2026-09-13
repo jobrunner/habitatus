@@ -21,6 +21,18 @@ import subprocess
 import sys
 
 
+def _reject_nonfinite(value):
+    """json accepts the non-standard literals NaN, Infinity and -Infinity. A cap
+    or threshold set to NaN makes every comparison in both ratchets false —
+    x > NaN, x < NaN and NaN > old are all false — so a config could pass every
+    gate without being judged. Reject them at the parser."""
+    raise ValueError(f"non-finite number {value!r} is not allowed in ratchet input")
+
+
+def loads(text):
+    return json.loads(text, parse_constant=_reject_nonfinite)
+
+
 def at(ref, path):
     """File content at a git ref, or None when it did not exist there."""
     p = subprocess.run(["git", "show", f"{ref}:{path}"],
@@ -72,6 +84,25 @@ def check_caps(base, head, section, bad):
             # higher than the value that entry pinned.
             bad.append(f".codecharta-ratchet.json: {section}.baseline[{f}] ({cap}) dropped, "
                        f"so it falls back to default_cap {hdef}")
+    # A NEW baseline entry above the base default lifts that file out of the
+    # default cap — the same loosening as raising the default, one file at a
+    # time, and invisible if only the base's own entries are compared.
+    for f, cap in sorted(hbase.items()):
+        if f not in bbase and bdef is not None and cap > bdef:
+            bad.append(f".codecharta-ratchet.json: {section}.baseline[{f}] added at {cap}, "
+                       f"above the base default_cap {bdef}")
+
+
+def check_metric(base, head, section, bad):
+    """The caps are meaningless if the metric under them changes. Swapping
+    complexity.metric from `complexity` (the per-file sum) to
+    `max_complexity_per_function` (a much smaller number) leaves every cap in
+    place and disables the gate."""
+    b = ((base or {}).get(section) or {}).get("metric")
+    h = ((head or {}).get(section) or {}).get("metric")
+    if b is not None and h != b:
+        bad.append(f".codecharta-ratchet.json: {section}.metric changed {b!r} -> {h!r} — "
+                   f"the existing caps then judge a different quantity")
 
 
 def check_hotspot(base, head, bad):
@@ -112,9 +143,9 @@ def main():
 
     base_cfg_text = at(ref, ".codecharta-ratchet.json")
     try:
-        base_cfg = json.loads(base_cfg_text) if base_cfg_text else None
+        base_cfg = loads(base_cfg_text) if base_cfg_text else None
         with open(".codecharta-ratchet.json", encoding="utf-8") as fh:
-            head_cfg = json.load(fh)
+            head_cfg = loads(fh.read())
     except (OSError, ValueError) as e:
         print(f"::error::cannot read the ratchet config ({e})", file=sys.stderr)
         return 2
@@ -124,6 +155,7 @@ def main():
               f"to compare, this is its first introduction")
     else:
         for section in ("complexity", "function_complexity"):
+            check_metric(base_cfg, head_cfg, section, bad)
             check_caps(base_cfg, head_cfg, section, bad)
         check_hotspot(base_cfg, head_cfg, bad)
 
