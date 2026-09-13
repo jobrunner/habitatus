@@ -29,6 +29,13 @@ env:
 permissions:
   contents: read
 
+# GitHub's implicit shell is `bash -e`, without pipefail: a failing command in
+# a pipeline is reported as the success of the last one. Every workflow in this
+# repository declares `bash`, which is `bash --noprofile --norc -eo pipefail`.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   version:
     name: Resolve version
@@ -108,30 +115,34 @@ jobs:
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
 
-      # The tag list arrives through the environment, not by interpolation
-      # into the script: metadata-action emits one tag per line, and a value
-      # spliced straight into shell is both a quoting hazard and unreadable.
+      # The tag list arrives through the environment, not by interpolation into
+      # the script: metadata-action emits one tag per line, and a value spliced
+      # straight into shell is both a quoting hazard and unreadable. It is read
+      # with a here-string rather than a pipe so the loop runs in THIS shell —
+      # a `printf | while` puts the body in a subshell, where a failing
+      # imagetools create would be reported as printf's success and an
+      # incomplete manifest would go on to be signed and published.
       - name: Merge the per-arch candidates into one manifest
         env:
           TAGS: ${{ steps.meta.outputs.tags }}
           RUN_ID: ${{ github.run_id }}
         run: |
           src="${REGISTRY}/${IMAGE_NAME}:ci-${RUN_ID}"
-          printf '%s\n' "$TAGS" | while read -r tag; do
+          while read -r tag; do
             [ -n "$tag" ] || continue
             docker buildx imagetools create -t "$tag" \
               "${src}-amd64" "${src}-arm64"
-          done
+          done <<< "$TAGS"
 
       - name: Sign the manifest
         env:
           TAGS: ${{ steps.meta.outputs.tags }}
         run: |
-          printf '%s\n' "$TAGS" | while read -r tag; do
+          while read -r tag; do
             [ -n "$tag" ] || continue
             digest=$(docker buildx imagetools inspect "$tag" --format '{{json .Manifest.Digest}}' | tr -d '"')
             cosign sign --yes "${REGISTRY}/${IMAGE_NAME}@${digest}"
-          done
+          done <<< "$TAGS"
 
       - name: Summary
         run: |

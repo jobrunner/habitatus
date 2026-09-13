@@ -11,6 +11,13 @@ on:
 permissions:
   contents: read
 
+# GitHub's implicit shell is `bash -e`, without pipefail: a failing command in
+# a pipeline is reported as the success of the last one. Every workflow in this
+# repository declares `bash`, which is `bash --noprofile --norc -eo pipefail`.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   govulncheck:
     name: govulncheck
