@@ -1,7 +1,11 @@
-# Nightly fuzzing of the rule-file parsers. The CI job runs 30 seconds per
-# target as a smoke test; this one runs long enough to find the inputs a smoke
-# test never reaches. A crash is committed as a seed corpus entry by whoever
+# Nightly fuzzing of the rule-file parsers. The CI job budgets executions as a
+# smoke test; this one runs on a clock, long enough to reach inputs a smoke
+# test never does. A crash is committed as a seed corpus entry by whoever
 # triages it, so the CI job then covers it forever.
+#
+# One failure here is NOT a crash: "context deadline exceeded" with no crasher
+# in the artifact is Go's fuzzing shutdown racing its own deadline. Check the
+# artifact before hunting for a bug that is not there.
 name: Fuzz
 
 on:

@@ -179,7 +179,13 @@ jobs:
   # ===========================================================================
   # Fuzzing (short). The rule file is third-party input and the parsers that
   # read it must never panic — a panic there is a start-up crash with no
-  # diagnosis. A longer nightly run lives in fuzz.yml.
+  # diagnosis. A longer nightly hunt lives in fuzz.yml.
+  #
+  # Budgeted in EXECUTIONS rather than seconds. A duration would let a slow
+  # runner do less work, and it races Go's fuzzing shutdown: when the timer
+  # fires mid-execution the coordinator can fail with "context deadline
+  # exceeded" and no crasher, which is how this required check first went red
+  # on a run that had found nothing.
   # ===========================================================================
   fuzz:
     name: Fuzz (smoke)
@@ -192,7 +198,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Fuzz the rule-file parsers
-        run: make fuzz FUZZTIME=30s
+        run: make fuzz FUZZTIME=1000000x
 
   # ===========================================================================
   # Go vulnerability scanning.

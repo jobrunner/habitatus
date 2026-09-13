@@ -104,7 +104,12 @@ docker-run:
 # =============================================================================
 
 BENCHCOUNT ?= 6
-FUZZTIME   ?= 60s
+# Executions, not wall-clock. A duration makes the gate do less work on a slow
+# runner and, worse, races Go's own fuzzing shutdown: when the timer fires
+# mid-execution the coordinator can report "context deadline exceeded" as a
+# test failure with no crasher to show for it. That turned a required check
+# into a coin flip. An execution count is deterministic across machines.
+FUZZTIME   ?= 1000000x
 
 lint:
 	golangci-lint run --timeout=5m
@@ -124,6 +129,7 @@ bench:
 
 # The rule file is third-party input. These targets fuzz the parsers that read
 # it; a crash found here is a start-up crash avoided in production.
+# FUZZTIME takes either form — `make fuzz FUZZTIME=10m` for a long hunt.
 fuzz:
 	@for t in FuzzParseExpr FuzzParseFormula FuzzSplitSections FuzzLoad; do \
 	  echo "==> $$t"; \
@@ -173,4 +179,4 @@ codecharta:
 # needs ccsh and a JRE, and `golden` takes eleven minutes. Run those before a
 # change that touches what they cover; CI runs all of them regardless.
 quality: lint cover check bench licenses
-	$(MAKE) fuzz FUZZTIME=10s
+	$(MAKE) fuzz FUZZTIME=200000x
