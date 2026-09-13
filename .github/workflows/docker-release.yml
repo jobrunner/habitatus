@@ -108,17 +108,27 @@ jobs:
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
 
+      # The tag list arrives through the environment, not by interpolation
+      # into the script: metadata-action emits one tag per line, and a value
+      # spliced straight into shell is both a quoting hazard and unreadable.
       - name: Merge the per-arch candidates into one manifest
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          RUN_ID: ${{ github.run_id }}
         run: |
-          src="${REGISTRY}/${IMAGE_NAME}:ci-${{ github.run_id }}"
-          for tag in $(echo "${{ steps.meta.outputs.tags }}"); do
+          src="${REGISTRY}/${IMAGE_NAME}:ci-${RUN_ID}"
+          printf '%s\n' "$TAGS" | while read -r tag; do
+            [ -n "$tag" ] || continue
             docker buildx imagetools create -t "$tag" \
               "${src}-amd64" "${src}-arm64"
           done
 
       - name: Sign the manifest
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
         run: |
-          for tag in $(echo "${{ steps.meta.outputs.tags }}"); do
+          printf '%s\n' "$TAGS" | while read -r tag; do
+            [ -n "$tag" ] || continue
             digest=$(docker buildx imagetools inspect "$tag" --format '{{json .Manifest.Digest}}' | tr -d '"')
             cosign sign --yes "${REGISTRY}/${IMAGE_NAME}@${digest}"
           done

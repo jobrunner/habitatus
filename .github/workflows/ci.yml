@@ -308,10 +308,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the ratchet baseline compares against the PR's base
 
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+
+      # A ratchet is only a ratchet if its own settings cannot move the wrong
+      # way. Both config files are read exclusively from the working tree, so
+      # without this a PR could lower a floor, drop a package line, raise a
+      # complexity cap or grandfather a file into hotspot.allow — and every
+      # gate would still report green, because each faithfully enforces
+      # whatever the file now says.
+      - name: Ratchet configuration is no weaker than the base
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags --depth=1 origin "${BASE}"
+          python3 scripts/ratchet-baseline.py FETCH_HEAD
+        env:
+          BASE: ${{ github.base_ref }}
 
       - name: go.mod tidiness
         run: go mod tidy -diff
@@ -360,9 +376,14 @@ jobs:
       - name: Build
         run: go build -v ./cmd/habitatus
 
+      # gofmt and the filter are separate statements: `gofmt -l . | grep -v … ||
+      # true` swallowed a gofmt failure (a parse error, a missing binary) along
+      # with grep's expected exit 1 on empty output, so the step could pass
+      # without the check having run.
       - name: gofmt
         run: |
-          unformatted=$(gofmt -l . | grep -v '^vendor/' || true)
+          gofmt -l . > /tmp/gofmt.out
+          unformatted=$(grep -v '^vendor/' /tmp/gofmt.out || true)
           if [ -n "$unformatted" ]; then
             echo "::error::gofmt would change: $unformatted"
             exit 1
@@ -392,11 +413,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # -shellcheck takes the PATH TO THE EXECUTABLE, not shellcheck options.
+      # It was "-S error" here, which is not a program: actionlint silently
+      # skipped shellcheck entirely and the job passed having checked only
+      # half of what its name claims. Verified locally — with "-S error" a
+      # workflow containing `rm -rf $HOME/$MAYBE_EMPTY` passes clean; with
+      # the executable named properly the same file reports SC2115 and two
+      # SC2086. Severity is not filtered: the real workflows produce two
+      # findings in total, so there is nothing to filter away.
       - name: actionlint
         run: |
           curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash \
             | bash -s -- 1.7.7
-          ./actionlint -color -shellcheck="-S error"
+          ./actionlint -color -shellcheck=shellcheck
 
       # A version tag written into a comment is a pin Dependabot will never
       # update — it only touches the real `uses:` line — so it drifts silently.
