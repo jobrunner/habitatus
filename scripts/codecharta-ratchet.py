@@ -37,6 +37,21 @@ def load_json(path):
         return json.load(fh)
 
 
+# The paths ccsh's unifiedparser was asked to measure: Go sources outside the
+# excluded trees. Everything else in the map — tests, Markdown, YAML, the R
+# spike — reaches it only through gitlogparser and legitimately carries no
+# complexity metric. Keep this in step with the -fe / -e flags in
+# .github/workflows/codecharta.yml and the Makefile's codecharta target.
+PARSED_EXCLUDES = ("vendor/", "spike/", "build/")
+
+
+def is_parsed_source(rel):
+    """True for a file the complexity parser was supposed to measure."""
+    if not rel.endswith(".go") or rel.endswith("_test.go"):
+        return False
+    return not rel.startswith(PARSED_EXCLUDES)
+
+
 def cap_check(files, metric, default_cap, baseline, label, cfg_path):
     """Per-file ceiling on `metric`: files in `baseline` are frozen at their recorded
     value (can't grow), everything else must stay <= default_cap. Returns
@@ -50,14 +65,19 @@ def cap_check(files, metric, default_cap, baseline, label, cfg_path):
     for rel, attrs in sorted(files.items()):
         val = attrs.get(metric)
         if val is None:
-            # A file with no value for this metric is normally uninteresting —
-            # but a BASELINED file losing its metric silently drops its cap,
-            # and the global "metric absent everywhere" guard below cannot see
-            # a single file going missing. Treat that as a violation.
+            # A missing value means this file is subject to no cap at all. For
+            # anything the parser was meant to measure that is a hole, not a
+            # pass: a new source file, or one ccsh failed to parse, would be
+            # free to grow while the gate stayed green. The global "absent
+            # everywhere" guard cannot see a single file going missing.
             if rel in baseline:
                 violations.append(
                     f"{label}: {rel} is baselined at {baseline[rel]} but the map "
                     f"carries no '{metric}' for it — its cap would vanish")
+            elif is_parsed_source(rel):
+                violations.append(
+                    f"{label}: {rel} is a parsed source but the map carries no "
+                    f"'{metric}' for it — it would be subject to no cap")
             continue
         cap = baseline.get(rel, default_cap)
         if val > cap:
