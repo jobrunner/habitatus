@@ -116,9 +116,19 @@ def main():
     except (OSError, ValueError) as e:  # missing/unreadable file or invalid JSON
         print(f"::error::cannot read input ({e})", file=sys.stderr)
         return 2
+    # Both must be objects before anything calls .get on them: syntactically
+    # valid JSON like [] or null would otherwise raise AttributeError deep in
+    # the run, and a crash reads as a broken script rather than as the broken
+    # input it is. The promise of this function is exit 2 for a malformed map.
+    for name, obj in (("map", doc), ("config", cfg)):
+        if not isinstance(obj, dict):
+            print(f"::error::{name} is {type(obj).__name__}, expected a JSON object",
+                  file=sys.stderr)
+            return 2
     nodes = doc.get("nodes")
     if not nodes:
-        nodes = (doc.get("data") or {}).get("nodes")
+        data = doc.get("data")
+        nodes = data.get("nodes") if isinstance(data, dict) else None
     if not nodes:
         print(f"::error::{map_path}: no nodes in map — cannot run the ratchet", file=sys.stderr)
         return 2
@@ -187,7 +197,19 @@ def main():
     for rel, attrs in sorted(files.items()):
         val = attrs.get(metric)
         cov = attrs.get("line_coverage")
-        if val is None or cov is None:
+        if val is None:
+            continue
+        if cov is None:
+            # A file the parser measured but coverage never mentioned has no
+            # test data at all — which for the hotspot gate is the worst case,
+            # not an exemption. Skipping it let a new, complex, wholly untested
+            # source pass while the gate reported green. Files that legitimately
+            # have no coverage (the composition root) belong in `allow`, named,
+            # where the config says why.
+            if val >= min_cx and rel not in allow and is_parsed_source(rel):
+                violations.append(
+                    f"hotspot: {rel} complexity {val:.0f} >= {min_cx} AND the map "
+                    f"carries no coverage for it at all")
             continue
         if val >= min_cx and cov < min_cov and rel not in allow:
             violations.append(f"hotspot: {rel} complexity {val:.0f} >= {min_cx} AND coverage {cov:.1f}% < {min_cov}%")
