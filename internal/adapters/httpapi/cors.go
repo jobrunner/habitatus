@@ -33,9 +33,14 @@ func ParseOrigins(s string) ([]string, error) {
 			// such a value can never equal the Origin a browser sends — it
 			// would sit in the allowlist looking configured while matching
 			// nothing, which is worse than being rejected.
+			// The raw "#" is checked on the string: url.Parse leaves Fragment
+			// empty for a trailing delimiter, so "https://a.example#" would
+			// pass a Fragment check. There is no ForceFragment to mirror
+			// ForceQuery, and an origin never contains "#" at all.
 			u, err := url.Parse(o)
 			if err != nil || u.Scheme == "" || u.Host == "" || u.Path != "" ||
-				u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.User != nil {
+				u.RawQuery != "" || u.ForceQuery || u.Fragment != "" ||
+				strings.Contains(o, "#") || u.User != nil {
 				return nil, fmt.Errorf("origin %q is not scheme://host[:port]", o)
 			}
 		}

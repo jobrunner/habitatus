@@ -169,6 +169,13 @@ def main():
         print(f"::error::{cfg_path}: malformed config ({e})", file=sys.stderr)
         return 2
 
+    # Each baseline must be an object {path: cap}; otherwise cap_check's baseline.get()
+    # would raise deep in the run instead of failing here with a clear message.
+    for name, b in (("complexity.baseline", baseline), ("function_complexity.baseline", fbaseline)):
+        if not isinstance(b, dict):
+            print(f"::error::{cfg_path}: {name} must be an object (got {type(b).__name__})", file=sys.stderr)
+            return 2
+
     # Every threshold and every cap must be a finite number. A string, a None
     # or a NaN that slipped past the parser would make the comparisons below
     # silently false, and the gate would report OK having judged nothing.
@@ -185,13 +192,6 @@ def main():
                 or v in (float("inf"), float("-inf")):
             print(f"::error::{cfg_path}: {name} = {v!r} is not a finite number",
                   file=sys.stderr)
-            return 2
-
-    # Each baseline must be an object {path: cap}; otherwise cap_check's baseline.get()
-    # would raise deep in the run instead of failing here with a clear message.
-    for name, b in (("complexity.baseline", baseline), ("function_complexity.baseline", fbaseline)):
-        if not isinstance(b, dict):
-            print(f"::error::{cfg_path}: {name} must be an object (got {type(b).__name__})", file=sys.stderr)
             return 2
 
     # Guard against a vacuous pass: if a cap metric is absent from EVERY file (a ccsh
