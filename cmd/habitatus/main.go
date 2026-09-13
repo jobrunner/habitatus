@@ -3,8 +3,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -164,7 +162,7 @@ func run(log *slog.Logger, cfg config, mode esy.Mode) error {
 	}
 	defer func() { _ = f.Close() }()
 
-	digest, err := fileDigest(f)
+	digest, err := rulepack.Digest(f)
 	if err != nil {
 		return errors.New("cannot digest rule file: " + err.Error())
 	}
@@ -269,12 +267,4 @@ func run(log *slog.Logger, cfg config, mode esy.Mode) error {
 		log.Info("shut down cleanly")
 		return nil
 	}
-}
-
-func fileDigest(r io.Reader) (string, error) {
-	h := sha256.New()
-	if _, err := io.Copy(h, r); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
 }
