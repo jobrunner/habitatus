@@ -31,10 +31,18 @@ import json
 import sys
 
 
+def _reject_nonfinite(value):
+    """json.load accepts the non-standard literals NaN, Infinity and -Infinity.
+    A threshold or cap set to NaN makes every comparison false, so the gate
+    would pass without judging anything — the exact failure this script exists
+    to prevent, reachable by editing a tracked config file."""
+    raise ValueError(f"non-finite number {value!r} is not allowed in ratchet input")
+
+
 def load_json(path):
     opener = gzip.open if path.endswith(".gz") else open
     with opener(path, "rt", encoding="utf-8") as fh:
-        return json.load(fh)
+        return json.load(fh, parse_constant=_reject_nonfinite)
 
 
 # The paths ccsh's unifiedparser was asked to measure: Go sources outside the
@@ -132,7 +140,19 @@ def main():
     if not nodes:
         print(f"::error::{map_path}: no nodes in map — cannot run the ratchet", file=sys.stderr)
         return 2
-    files = dict(leaves(nodes[0], []))
+    if not isinstance(nodes, list) or not isinstance(nodes[0], dict):
+        print(f"::error::{map_path}: 'nodes' is not a list of objects — cannot run "
+              f"the ratchet", file=sys.stderr)
+        return 2
+    try:
+        files = dict(leaves(nodes[0], []))
+    except (AttributeError, KeyError, TypeError) as e:
+        # A malformed node tree is broken INPUT, and the contract of this
+        # function is exit 2 for that. A traceback reads as a broken script and
+        # sends the reader to the wrong place.
+        print(f"::error::{map_path}: malformed node tree ({type(e).__name__}: {e})",
+              file=sys.stderr)
+        return 2
     if not files:
         print(f"::error::{map_path}: map has nodes but no File leaves — cannot run the "
               f"ratchet (ccsh format change?). Refusing to pass vacuously.", file=sys.stderr)
@@ -148,6 +168,24 @@ def main():
     except (KeyError, TypeError) as e:  # missing key or wrong shape (typo in config)
         print(f"::error::{cfg_path}: malformed config ({e})", file=sys.stderr)
         return 2
+
+    # Every threshold and every cap must be a finite number. A string, a None
+    # or a NaN that slipped past the parser would make the comparisons below
+    # silently false, and the gate would report OK having judged nothing.
+    numbers = [("complexity.default_cap", default_cap),
+               ("function_complexity.default_cap", fdefault),
+               ("hotspot.min_complexity", min_cx),
+               ("hotspot.min_coverage", min_cov)]
+    numbers += [(f"complexity.baseline[{k}]", v) for k, v in baseline.items()
+                if not k.startswith("_")]
+    numbers += [(f"function_complexity.baseline[{k}]", v) for k, v in fbaseline.items()
+                if not k.startswith("_")]
+    for name, v in numbers:
+        if not isinstance(v, (int, float)) or isinstance(v, bool) or v != v \
+                or v in (float("inf"), float("-inf")):
+            print(f"::error::{cfg_path}: {name} = {v!r} is not a finite number",
+                  file=sys.stderr)
+            return 2
 
     # Each baseline must be an object {path: cap}; otherwise cap_check's baseline.get()
     # would raise deep in the run instead of failing here with a clear message.
