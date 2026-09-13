@@ -1,0 +1,95 @@
+# Deployment on a Docker host. For local development use compose.yaml, which
+# builds from this checkout instead of pulling a published image.
+#
+#   docker compose -f compose.deploy.yaml up -d
+#   docker compose -f compose.deploy.yaml logs -f
+#
+# Everything below that carries a number was measured on the running container,
+# not estimated; the comments say which.
+name: habitatus
+
+services:
+  habitatus:
+    # Published by .github/workflows/docker-release.yml on a v* tag, multi-arch
+    # (amd64 + arm64), signed with cosign and carrying an SPDX SBOM. Pin the
+    # version — never :latest, which makes a redeploy a silent upgrade and a
+    # rollback impossible to describe.
+    #
+    # This requires the tag to exist. If no release has been cut yet, either cut
+    # one, or build on the host by replacing the `image:` line with:
+    #     build: { context: ., args: { VERSION: dev, COMMIT: local } }
+    image: ghcr.io/jobrunner/habitatus:0.1.0
+    pull_policy: missing
+
+    restart: unless-stopped
+
+    # Bound to the loopback interface on purpose. Docker writes its own iptables
+    # rules and a plain "8080:8080" would be reachable from the internet even
+    # with ufw denying it — a trap that has exposed more services than any
+    # missing firewall ever did. Put a reverse proxy in front, or change this
+    # deliberately.
+    ports:
+      - "127.0.0.1:8080:8080"
+
+    # The mode decides what an answer means, so it is stated explicitly here
+    # rather than left to the image default. `repaired` evaluates the
+    # expressions ESy v1.2 forces to FALSE, as R did up to v1.1; `faithful`
+    # reproduces v1.2 as shipped, where 100 of 312 rules can never fire. The
+    # value appears in `versions` on every response.
+    environment:
+      HABITATUS_MODE: repaired
+      # HABITATUS_RULES and HABITATUS_ADDR default to the vendored rule file
+      # and :8080 inside the image; set them only when overriding.
+
+    # The image ships the rule file, so no volume is needed to run. Mount one
+    # only to serve a different rule-file version or to add the nomenclature
+    # backbones. Read-only, and readable by uid 65532 — the container is
+    # nonroot and a permission error is a hard start-up failure.
+    # volumes:
+    #   - /srv/habitatus/esy/EUNIS-ESy-2026-xx-xx.txt:/data/esy/rules.txt:ro
+    #   - /srv/habitatus/backbones:/data/esy/backbones:ro
+    # environment:
+    #   HABITATUS_RULES: /data/esy/rules.txt
+    #   HABITATUS_BACKBONES: /data/esy/backbones
+
+    # habitatus reads the rule file once at start-up and serves everything from
+    # memory afterwards — it writes nowhere at runtime, so a read-only root
+    # filesystem needs no tmpfs mount.
+    read_only: true
+    user: "65532:65532"
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+    # Measured on this image: 36 MB after start (the parsed rule pack — 312
+    # rules, 326 species groups, 100,704 name aggregations), 52 MB after 20
+    # sequential classifications, 80 MB after 200 concurrent ones. The limit is
+    # generous against that peak; raise it only with a measurement in hand.
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+
+    # SIGTERM starts a graceful shutdown with a 10 s drain
+    # (cmd/habitatus/main.go), so the grace period has to exceed it — otherwise
+    # Docker kills the container mid-request at the 10 s default.
+    stop_grace_period: 15s
+
+    # Without a limit the JSON log file grows until the host's disk is full.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+    # No healthcheck, and that is a decision rather than an omission: the image
+    # is distroless, so it has no shell, no curl and no wget, and Docker can
+    # only run a health probe from inside the container. The service does expose
+    # a probe — GET /health/ready, 200 with {"status":"ready"} — so check it
+    # from outside: the reverse proxy, an uptime monitor, or
+    #     curl -fsS http://127.0.0.1:8080/health/ready
+    # Note also that a plain Docker host does not act on an unhealthy container
+    # anyway; `restart: unless-stopped` reacts to the process exiting, which is
+    # what actually happens when this service fails at start-up.

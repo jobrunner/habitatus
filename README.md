@@ -147,6 +147,35 @@ Datei nennt.
 Kein `HEALTHCHECK`: das Image hat weder Shell noch `curl`. Orchestratoren
 sollen stattdessen direkt gegen `GET /health/ready` prüfen.
 
+### Deployment auf einem Docker-Host
+
+`compose.deploy.yaml` zieht ein veröffentlichtes Image, statt wie
+`compose.yaml` aus diesem Checkout zu bauen:
+
+```sh
+docker compose -f compose.deploy.yaml up -d
+docker compose -f compose.deploy.yaml logs -f
+```
+
+Es setzt voraus, dass ein `v*`-Tag existiert — erst der löst
+`docker-release.yml` aus, das nach `ghcr.io/jobrunner/habitatus` veröffentlicht
+(multi-arch, cosign-signiert, mit SPDX-SBOM). Solange keiner gesetzt ist, die
+`image:`-Zeile durch einen `build:`-Block ersetzen; der Kommentar in der Datei
+sagt, wie.
+
+Drei Entscheidungen darin, die man kennen sollte:
+
+- **Der Port ist an `127.0.0.1` gebunden.** Docker schreibt eigene
+  iptables-Regeln; ein schlichtes `8080:8080` wäre aus dem Internet erreichbar,
+  auch wenn `ufw` es verbietet. Davor gehört ein Reverse Proxy.
+- **Der Modus steht explizit in der Datei**, nicht auf dem Image-Default. Er
+  entscheidet, was eine Antwort bedeutet, und taucht in `versions` jeder
+  Antwort auf.
+- **Speichergrenze 512 MB**, gegen gemessene Werte: 36 MB nach Start, 52 MB
+  nach 20 Anfragen, 80 MB nach 200 parallelen. `stop_grace_period: 15s` liegt
+  über dem 10-Sekunden-Drain aus `cmd/habitatus/main.go` — bei Dockers Default
+  von 10 s würde der Container mitten in einer Anfrage abgeschossen.
+
 ## Lizenz
 
 Der Code steht unter der **MIT-Lizenz** (`LICENSE`).
