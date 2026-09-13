@@ -1,8 +1,8 @@
-# Deployment on a Docker host. For local development use compose.yaml, which
+# Deployment on a Docker host. For local development use docker-compose.yml, which
 # builds from this checkout instead of pulling a published image.
 #
-#   docker compose -f compose.deploy.yaml up -d
-#   docker compose -f compose.deploy.yaml logs -f
+#   docker compose -f docker-compose.deploy.yml up -d
+#   docker compose -f docker-compose.deploy.yml logs -f
 #
 # Everything below that carries a number was measured on the running container,
 # not estimated; the comments say which.
@@ -40,6 +40,15 @@ services:
       HABITATUS_MODE: repaired
       # HABITATUS_RULES and HABITATUS_ADDR default to the vendored rule file
       # and :8080 inside the image; set them only when overriding.
+      #
+      # CORS is off unless listed here, and without it the API is unreachable
+      # from a browser on another origin — POST /api/v1/classify takes
+      # application/json, which always triggers a preflight, and without CORS
+      # that preflight is answered 405. Server-side callers are unaffected.
+      # Name the origins rather than using '*' unless the deployment really is
+      # public: this service has no authentication, so '*' lets any page a user
+      # visits reach it.
+      # HABITATUS_CORS: "https://app.example, https://admin.example"
 
     # The image ships the rule file, so no volume is needed to run. Mount one
     # only to serve a different rule-file version or to add the nomenclature

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -36,11 +37,20 @@ var (
 // config holds everything main needs after flags and environment are
 // resolved. Kept separate from flag.FlagSet so resolveConfig is callable
 // from a test without starting a server or touching the real environment.
+// errConfig marks a configuration error this program raised itself, as
+// opposed to one the flag package already reported. main prints only the
+// former: the flag package writes its own message and usage to stderr, and a
+// second copy would be noise — but an unreported error is worse than noise.
+// Exiting 2 in silence is how an operator ends up staring at a container that
+// stops with no reason given.
+var errConfig = errors.New("invalid configuration")
+
 type config struct {
 	addr          string
 	rulesPath     string
 	backbonesPath string
 	modeName      string
+	corsOrigins   []string
 	mcp           bool
 }
 
@@ -65,6 +75,9 @@ func resolveConfig(env func(string) string, args []string) (config, error) {
 	backbonesPath := fs.String("backbones", envOrDefault("HABITATUS_BACKBONES", ""),
 		"path to the directory of nomenclature translation tables (optional)")
 	mcp := fs.Bool("mcp", false, "serve MCP over stdio instead of HTTP")
+	cors := fs.String("cors", envOrDefault("HABITATUS_CORS", ""),
+		"comma-separated origins allowed to call the API from a browser "+
+			"(scheme://host[:port]), or * for any; empty keeps CORS off")
 	modeName := fs.String("mode", envOrDefault("HABITATUS_MODE", esy.Repaired.String()),
 		"evaluation semantics: "+strings.Join(esy.ModeNames(), "|")+
 			" (repaired evaluates the expressions ESy v1.2 forces to FALSE by "+
@@ -75,11 +88,17 @@ func resolveConfig(env func(string) string, args []string) (config, error) {
 		return config{}, err
 	}
 
+	origins, err := httpapi.ParseOrigins(*cors)
+	if err != nil {
+		return config{}, fmt.Errorf("%w: %w", errConfig, err)
+	}
+
 	return config{
 		addr:          *addr,
 		rulesPath:     *rulesPath,
 		backbonesPath: *backbonesPath,
 		modeName:      *modeName,
+		corsOrigins:   origins,
 		mcp:           *mcp,
 	}, nil
 }
@@ -89,6 +108,9 @@ func main() {
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			os.Exit(0)
+		}
+		if errors.Is(err, errConfig) {
+			fmt.Fprintln(os.Stderr, err)
 		}
 		os.Exit(2)
 	}
@@ -118,13 +140,18 @@ func main() {
 	log.Info("configuration resolved",
 		"addr", cfg.addr, "rules", cfg.rulesPath, "backbones", cfg.backbonesPath, "mode", cfg.modeName)
 
-	if err := run(log, cfg.addr, cfg.rulesPath, cfg.backbonesPath, cfg.mcp, mode); err != nil {
+	if err := run(log, cfg, mode); err != nil {
 		log.Error("habitatus exited with an error", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(log *slog.Logger, addr, rulesPath, backbonesPath string, mcp bool, mode esy.Mode) error {
+// run takes the whole config rather than a growing parameter list: every
+// option here is one an operator sets, and threading them individually made
+// adding the CORS allowlist a change to the signature rather than to the
+// struct that already describes the configuration.
+func run(log *slog.Logger, cfg config, mode esy.Mode) error {
+	addr, rulesPath, backbonesPath, mcp := cfg.addr, cfg.rulesPath, cfg.backbonesPath, cfg.mcp
 	// Logged before anything else the service does: which semantics a run
 	// used decides what its answers mean, and an operator reading the log
 	// after the fact must not have to infer it.
@@ -210,7 +237,7 @@ func run(log *slog.Logger, addr, rulesPath, backbonesPath string, mcp bool, mode
 
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           httpapi.NewServer(svc),
+		Handler:           httpapi.WithCORS(httpapi.NewServer(svc), cfg.corsOrigins),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,

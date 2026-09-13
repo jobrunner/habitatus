@@ -147,14 +147,48 @@ Datei nennt.
 Kein `HEALTHCHECK`: das Image hat weder Shell noch `curl`. Orchestratoren
 sollen stattdessen direkt gegen `GET /health/ready` prüfen.
 
-### Deployment auf einem Docker-Host
+### CORS
 
-`compose.deploy.yaml` zieht ein veröffentlichtes Image, statt wie
-`compose.yaml` aus diesem Checkout zu bauen:
+Standardmäßig **aus**. Eingeschaltet wird sie mit einer Liste erlaubter
+Herkünfte:
 
 ```sh
-docker compose -f compose.deploy.yaml up -d
-docker compose -f compose.deploy.yaml logs -f
+docker run ... -e HABITATUS_CORS='https://app.example, http://localhost:5173'
+docker run ... habitatus:latest -cors '*'      # jede Herkunft
+```
+
+Ohne diese Angabe ist die API **aus einem Browser heraus nicht erreichbar** —
+nicht eingeschränkt, sondern gar nicht: `POST /api/v1/classify` nimmt
+`application/json`, und das ist kein CORS-einfacher Content-Type, also schickt
+jeder Browser zuerst einen `OPTIONS`-Preflight. Ohne CORS beantwortet der Mux
+den mit `405`, und der Browser sendet die eigentliche Anfrage nie. Ein Client
+serverseitig (curl, Go, R) ist davon nicht betroffen.
+
+Warum trotzdem aus als Default: der Dienst bindet an `127.0.0.1` und erwartet
+einen Reverse Proxy davor. Ein permissiver Default würde bei einer internen
+Installation jeder beliebigen Webseite, die ein Nutzer öffnet, den Zugriff
+darauf erlauben. Die Entscheidung gehört dem Betreiber — sie ist eine
+Umgebungsvariable weit.
+
+Gesetzt werden `Access-Control-Allow-Origin` (die Herkunft des Aufrufers,
+nicht die Liste), `Vary: Origin` — damit ein Cache davor nicht die Antwort für
+eine Herkunft an eine andere ausliefert — und beim Preflight zusätzlich
+`Allow-Methods`, `Allow-Headers` und `Max-Age`. **Kein**
+`Allow-Credentials`: der Dienst hat weder Sitzungen noch Authentifizierung,
+also gibt es keine Rechte, die ein Browser mittragen könnte.
+
+Eine unbrauchbare Angabe (`a.example` ohne Schema, `*` mit benannten Herkünften
+gemischt) stoppt den Start mit einer Meldung, die den Wert nennt, statt mit
+einer halb konfigurierten CORS weiterzulaufen.
+
+### Deployment auf einem Docker-Host
+
+`docker-compose.deploy.yml` zieht ein veröffentlichtes Image, statt wie
+`docker-compose.yml` aus diesem Checkout zu bauen:
+
+```sh
+docker compose -f docker-compose.deploy.yml up -d
+docker compose -f docker-compose.deploy.yml logs -f
 ```
 
 Es setzt voraus, dass ein `v*`-Tag existiert — erst der löst
