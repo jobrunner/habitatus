@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Versions and entries below the Unreleased section are cut by release-please
 from Conventional Commits — do not edit them by hand.
 
+## [0.1.1](https://github.com/jobrunner/habitatus/compare/v0.1.0...v0.1.1) (2026-09-14)
+
+
+### Documentation
+
+* record what the v0.1.0 release actually produced ([557b898](https://github.com/jobrunner/habitatus/commit/557b898aadbbac6a00d429fbcd10a85b1837accb))
+
 ## 0.1.0 (2026-09-14)
 
 
