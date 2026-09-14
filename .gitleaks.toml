@@ -1,22 +1,20 @@
-# gitleaks config for habitatus. Starts from the built-in ruleset and allowlists
-# the paths that legitimately hold secret-shaped strings: the vendored rule file
-# (165,260 lines of taxon names, some of which look like high-entropy tokens),
-# the golden-master fixtures, and the docs. Real secrets in real source still
-# fail the Secret Scan job.
+# gitleaks config for habitatus.
 title = "habitatus gitleaks config"
 
 [extend]
 useDefault = true
 
-# Only the two DATA directories are exempt, and for one concrete reason: the
-# vendored rule file is 165,260 lines of taxon names and codes, some of which
-# trip entropy rules, and the golden-master fixtures are generated from it.
-# Prose is NOT exempt — allowlisting README, CHANGELOG and docs/ wholesale
-# would disable every rule for them, so a credential pasted into a document
-# would pass a gate that claims to catch exactly that.
+# Only the generated and vendored DATA FILES are exempt, named by pattern —
+# not the directories that hold them. A whole-tree allowlist would have made a
+# credential in ATTRIBUTION.md, in a backbone README, or in any file added to
+# those directories later invisible, while the Secret Scan went on reporting
+# green. The exemptions exist for one concrete reason: the rule file is 165,260
+# lines of taxon names and codes, some of which trip entropy rules, and the
+# golden-master fixtures are generated from it.
 [allowlist]
-description = "The vendored rule file and the fixtures generated from it. Everything else, including all source and all prose, is scanned."
+description = "The vendored rule file and the fixtures generated from it, by name. Everything else — source, prose, checksums, and any other file in these directories — is scanned."
 paths = [
-  '''(^|/)testdata/''',
-  '''(^|/)data/esy/''',
+  '''data/esy/EUNIS-ESy-\d{4}-\d{2}-\d{2}\.txt$''',
+  '''testdata/golden(-repaired)?/[^/]+\.jsonl$''',
+  '''testdata/golden(-repaired)?/[^/]+\.json$''',
 ]
