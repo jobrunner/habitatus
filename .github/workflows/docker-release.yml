@@ -144,22 +144,31 @@ jobs:
             cosign sign --yes "${REGISTRY}/${IMAGE_NAME}@${digest}"
           done <<< "$TAGS"
 
+      # Both values go through the environment. VERSION is repository content
+      # read by `head -n1 VERSION`, so interpolating it into the script means
+      # bash evaluates whatever it contains — `$(…)` in that file would run on
+      # the release runner, which holds a registry token and a signing
+      # identity. actionlint does not flag this: it treats `needs.*.outputs`
+      # as trusted, and the taint comes from the file behind it.
       - name: Summary
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           {
             echo "### Published"
             echo
             echo '```'
-            echo "${{ steps.meta.outputs.tags }}"
+            echo "$TAGS"
             echo '```'
             echo
             echo "Signed keylessly with cosign; SLSA provenance and an SPDX SBOM are attached as attestations."
             echo
             echo "Verify:"
             echo '```'
-            echo "cosign verify ${REGISTRY}/${IMAGE_NAME}:${{ needs.version.outputs.version }} \\"
+            echo "cosign verify ${REGISTRY}/${IMAGE_NAME}:${VERSION} \\"
             echo "  --certificate-identity-regexp 'https://github.com/${IMAGE_NAME}/' \\"
             echo "  --certificate-oidc-issuer https://token.actions.githubusercontent.com"
-            echo "cosign download sbom ${REGISTRY}/${IMAGE_NAME}:${{ needs.version.outputs.version }}"
+            echo "cosign download sbom ${REGISTRY}/${IMAGE_NAME}:${VERSION}"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

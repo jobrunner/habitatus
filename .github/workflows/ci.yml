@@ -161,12 +161,18 @@ jobs:
       - name: Benchmarks (this branch)
         run: make bench BENCHCOUNT=6 | tee new.txt
 
+      # BASE_SHA goes through the environment rather than into the script:
+      # github.event.* is caller-controlled, and the habit of quoting it into
+      # a shell is how workflows end up executing it. A SHA is constrained
+      # today; the habit is what matters.
       - name: Benchmarks (base) and benchstat delta
         if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           go install golang.org/x/perf/cmd/benchstat@latest
           # new.txt and old.txt are untracked, so they survive the checkouts.
-          git checkout --quiet "${{ github.event.pull_request.base.sha }}"
+          git checkout --quiet "$BASE_SHA"
           make bench BENCHCOUNT=6 > old.txt 2>/dev/null || echo "base: no comparable benchmarks" > old.txt
           git checkout --quiet -
           {
