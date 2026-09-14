@@ -213,6 +213,20 @@ def main():
                   f"ccsh version/parser mismatch? Refusing to pass vacuously.", file=sys.stderr)
             return 2
 
+    # The metric VALUES, not just their presence. "complexity": "oops" would
+    # reach `val > cap` and raise TypeError — a traceback and exit 1, where a
+    # malformed map owes the reader exit 2 and a message naming the file.
+    for rel, attrs in sorted(files.items()):
+        for m in (metric, fmetric, "line_coverage"):
+            v = attrs.get(m)
+            if v is None:
+                continue
+            if not isinstance(v, (int, float)) or isinstance(v, bool) or v != v \
+                    or v in (float("inf"), float("-inf")):
+                print(f"::error::{map_path}: {rel}: {m} = {v!r} is not a finite number",
+                      file=sys.stderr)
+                return 2
+
     violations, hints = [], []
 
     # 1. Per-file aggregate complexity (sum of function complexity). Stops a file
