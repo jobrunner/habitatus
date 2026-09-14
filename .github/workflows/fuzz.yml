@@ -42,7 +42,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.26.8'
+          go-version: '1.27.1'
 
       # The dispatch input goes through the environment, never through string
       # interpolation into the script: a value containing a quote would

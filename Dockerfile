@@ -3,10 +3,13 @@
 # Stage 1: static build. CGO_ENABLED=0 so the binary has no dynamic
 # dependency on libc — required for it to run on the distroless base below,
 # which carries no shared libraries at all.
-# Pinned to a patch level, not a floating minor tag. The 1.24 line is out of
-# security support: govulncheck reports standard-library vulnerabilities
-# against 1.24.13, its last release, that are fixed only from 1.25.13 on.
-FROM golang:1.26.8 AS build
+# Pinned to a patch level, not a floating minor tag, and kept in step with
+# GO_VERSION in every workflow: the golden masters verify this service against
+# the R implementation, and shipping a binary built by a compiler that
+# verification never ran under is a gap in exactly the claim this project
+# makes. Dependabot bumps the line below; the workflows have to follow in the
+# same change.
+FROM golang:1.27.1 AS build
 WORKDIR /src
 
 ARG VERSION=dev

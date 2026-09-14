@@ -18,7 +18,7 @@ on:
     branches: [main]
 
 env:
-  GO_VERSION: '1.26.8'
+  GO_VERSION: '1.27.1'
 
 # ESY_FILE is deliberately NOT set workflow-wide. The Makefile's own default
 # points at the vendored file, and the jobs that want it say so; setting it
