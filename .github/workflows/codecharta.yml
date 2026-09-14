@@ -1,0 +1,104 @@
+# CodeCharta analysis — a 3D "code city" combining structure and complexity
+# (ccsh unifiedparser), test coverage (go cover -> lcov -> coverageimport) and
+# git history (gitlogparser). The merged map is uploaded as an artifact; open it
+# at https://maibornwolff.github.io/codecharta/visualization/.
+#
+# The map is also a RATCHET: scripts/codecharta-ratchet.py gates it against
+# .codecharta-ratchet.json — a per-file complexity cap, a per-FUNCTION cap that
+# cannot be satisfied by moving code between files, and a hotspot gate for files
+# that are both complex and under-tested. Ratchet the baselines DOWN as the code
+# improves; raising one needs a justification in the PR.
+name: CodeCharta
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  GO_VERSION: '1.26.8'
+  CCSH_VERSION: '1.143.0'
+  GCOV2LCOV_VERSION: 'v1.1.1'
+
+permissions:
+  contents: read
+
+# GitHub's implicit shell is `bash -e`, without pipefail: a failing command in
+# a pipeline is reported as the success of the last one. Every workflow in this
+# repository declares `bash`, which is `bash --noprofile --norc -eo pipefail`.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  codecharta:
+    name: CodeCharta analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gitlogparser needs the full history for churn and authors
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install ccsh and gcov2lcov
+        run: |
+          npm install -g codecharta-analysis@${{ env.CCSH_VERSION }}
+          go install github.com/jandelgado/gcov2lcov@${{ env.GCOV2LCOV_VERSION }}
+          gobin="$(go env GOBIN)"; [ -n "$gobin" ] || gobin="$(go env GOPATH)/bin"
+          echo "$gobin" >> "$GITHUB_PATH"
+
+      - name: Structure and complexity
+        run: |
+          mkdir -p build
+          ccsh unifiedparser . -fe=go -e='_test\.go,vendor,spike,build' -nc -o build/base.cc.json
+
+      - name: Coverage into the map (best effort)
+        run: |
+          # A test failure is the Test job's business, not this one's, so it
+          # must not sink the MAP. It does, however, sink this job at the
+          # ratchet step: without coverage the hotspot gate has nothing to
+          # judge, and the script refuses to pass vacuously rather than
+          # report a green gate that checked nothing.
+          go test -coverprofile=build/cc.out ./... || true
+          if [ -s build/cc.out ]; then
+            gcov2lcov -infile=build/cc.out -outfile=build/coverage.info
+            ccsh coverageimport build/coverage.info -f lcov -nc -o build/coverage.cc.json
+          else
+            echo "::warning::no coverage profile produced; the map will omit coverage"
+          fi
+
+      - name: Git history
+        run: ccsh gitlogparser repo-scan --repo-path=. --add-author --silent -nc -o build/git.cc.json
+
+      - name: Merge
+        run: |
+          inputs="build/base.cc.json build/git.cc.json"
+          [ -f build/coverage.cc.json ] && inputs="$inputs build/coverage.cc.json"
+          # shellcheck disable=SC2086 # the input list is built above and is intentionally word-split
+          ccsh merge $inputs -o build/habitatus.cc.json.gz
+
+      - name: Ratchet gate
+        run: python3 scripts/codecharta-ratchet.py build/habitatus.cc.json.gz .codecharta-ratchet.json
+
+      - name: Upload the map
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codecharta-map
+          path: build/habitatus.cc.json.gz
+          if-no-files-found: warn

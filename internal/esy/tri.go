@@ -6,6 +6,8 @@ package esy
 // selection is which(matrix == TRUE), so NA never counts as a match.
 type Tri int8
 
+// The three truth values. Unknown is R's NA: it propagates through & and
+// | but never counts as a match.
 const (
 	False Tri = iota
 	True

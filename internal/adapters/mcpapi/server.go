@@ -19,10 +19,24 @@ import (
 
 // Server speaks a minimal MCP subset over stdio: initialize, tools/list and
 // tools/call for the single tool "classify".
-type Server struct{ svc *classify.Service }
+type Server struct {
+	svc *classify.Service
+	// version is what initialize reports as serverInfo.version. It comes from
+	// the binary's build stamp, not from a literal here: a hard-coded string
+	// goes stale at the first release and every MCP client is then told a
+	// version the binary is not.
+	version string
+}
 
-// NewServer builds an MCP server around the classification service.
-func NewServer(s *classify.Service) *Server { return &Server{svc: s} }
+// NewServer builds an MCP server around the classification service. version is
+// the build stamp; an empty one reports "dev", which is what an unstamped
+// local build is.
+func NewServer(s *classify.Service, version string) *Server {
+	if version == "" {
+		version = "dev"
+	}
+	return &Server{svc: s, version: version}
+}
 
 type rpcRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -210,7 +224,7 @@ func (s *Server) Serve(in io.Reader, out io.Writer) error {
 	enc := json.NewEncoder(out)
 	for sc.Scan() {
 		line := sc.Bytes()
-		if len(strings.TrimSpace(string(line))) == 0 {
+		if strings.TrimSpace(string(line)) == "" {
 			continue
 		}
 		var req rpcRequest
@@ -273,7 +287,7 @@ func (s *Server) dispatch(req rpcRequest) rpcResponse {
 		res.Result = map[string]any{
 			"protocolVersion": "2024-11-05",
 			"capabilities":    map[string]any{"tools": map[string]any{}},
-			"serverInfo":      map[string]any{"name": "habitatus", "version": "0.1.0"},
+			"serverInfo":      map[string]any{"name": "habitatus", "version": s.version},
 		}
 	case "tools/list":
 		res.Result = map[string]any{"tools": []any{classifyTool}}

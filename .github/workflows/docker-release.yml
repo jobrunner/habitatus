@@ -1,0 +1,223 @@
+# Container release. Builds the image natively per architecture (no QEMU),
+# pushes per-arch candidates, then merges them into one multi-arch manifest,
+# signs it keylessly with cosign, and attaches an SBOM.
+#
+# The image is built from the single Dockerfile in the repository root: a
+# multi-stage build onto distroless/static, running as nonroot, with the
+# CC BY 4.0 ESy rule file vendored in at a fixed path.
+name: Docker Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: docker-release-${{ github.ref }}
+  cancel-in-progress: false
+
+# The per-arch candidate tags carry the run id. Without it two releases
+# running at once would write the same `ci-amd64` / `ci-arm64` tags — the
+# concurrency group is keyed by ref, so it does not prevent that — and one
+# run could merge the other's architecture into a manifest that mixes two
+# commits under a single release tag.
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+permissions:
+  contents: read
+
+# GitHub's implicit shell is `bash -e`, without pipefail: a failing command in
+# a pipeline is reported as the success of the last one. Every workflow in this
+# repository declares `bash`, which is `bash --noprofile --norc -eo pipefail`.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  version:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: echo "version=$(head -n1 VERSION | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build (${{ matrix.arch }})
+    needs: [version]
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push the per-arch candidate
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:ci-${{ github.run_id }}-${{ matrix.arch }}
+          build-args: |
+            VERSION=${{ needs.version.outputs.version }}
+            COMMIT=${{ github.sha }}
+          provenance: true
+          sbom: true
+          cache-from: type=gha,scope=release-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=release-${{ matrix.arch }}
+
+  merge:
+    name: Merge and sign
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write      # keyless signing via the OIDC token
+      attestations: write  # provenance and SBOM on the merged index
+    steps:
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to the container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # The semver patterns only fire on a tag ref. A workflow_dispatch run
+          # starts from a branch, so without the raw tag below it would publish
+          # a sha tag and nothing else — no 0.1.0, and docker-compose.deploy.yml
+          # pins exactly that. The manual path would look like it released and
+          # produce nothing deployable.
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha
+            type=raw,value=${{ needs.version.outputs.version }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      # The tag list arrives through the environment, not by interpolation into
+      # the script: metadata-action emits one tag per line, and a value spliced
+      # straight into shell is both a quoting hazard and unreadable. It is read
+      # with a here-string rather than a pipe so the loop runs in THIS shell —
+      # a `printf | while` puts the body in a subshell, where a failing
+      # imagetools create would be reported as printf's success and an
+      # incomplete manifest would go on to be signed and published.
+      - name: Merge the per-arch candidates into one manifest
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          src="${REGISTRY}/${IMAGE_NAME}:ci-${RUN_ID}"
+          while read -r tag; do
+            [ -n "$tag" ] || continue
+            docker buildx imagetools create -t "$tag" \
+              "${src}-amd64" "${src}-arm64"
+          done <<< "$TAGS"
+
+      # Every release tag points at the one index imagetools just created, so
+      # its digest is taken once and everything below attests THAT.
+      #
+      # This is the digest that matters and the reason the next three steps
+      # exist: the per-arch builds carry provenance and SBOM attestations, but
+      # `imagetools create` produces a NEW index with a NEW digest, and
+      # attestations do not follow a digest they were not made for. Attesting
+      # only the candidates would leave the tags people actually pull carrying
+      # none of it, while the summary claimed otherwise.
+      - name: Resolve the released digest
+        id: digest
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          first=$(head -n1 <<< "$TAGS")
+          digest=$(docker buildx imagetools inspect "$first" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          [ -n "$digest" ] || { echo "::error::could not resolve the index digest"; exit 1; }
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Sign the manifest
+        env:
+          DIGEST: ${{ steps.digest.outputs.digest }}
+        run: cosign sign --yes "${REGISTRY}/${IMAGE_NAME}@${DIGEST}"
+
+      - name: Attest provenance for the released index
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.digest.outputs.digest }}
+          push-to-registry: true
+
+      - name: Generate an SBOM of the released index
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.digest }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+          upload-artifact: false
+
+      - name: Attest the SBOM for the released index
+        uses: actions/attest-sbom@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.digest.outputs.digest }}
+          sbom-path: sbom.spdx.json
+          push-to-registry: true
+
+      # Both values go through the environment. VERSION is repository content
+      # read by `head -n1 VERSION`, so interpolating it into the script means
+      # bash evaluates whatever it contains — `$(…)` in that file would run on
+      # the release runner, which holds a registry token and a signing
+      # identity. actionlint does not flag this: it treats `needs.*.outputs`
+      # as trusted, and the taint comes from the file behind it.
+      - name: Summary
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          VERSION: ${{ needs.version.outputs.version }}
+          DIGEST: ${{ steps.digest.outputs.digest }}
+        run: |
+          {
+            echo "### Published"
+            echo
+            echo '```'
+            echo "$TAGS"
+            echo '```'
+            echo
+            echo "Digest: ${DIGEST}"
+            echo
+            echo "Signed keylessly with cosign. SLSA provenance and an SPDX SBOM are"
+            echo "attested against THIS digest — the merged multi-arch index — not"
+            echo "against the per-architecture candidates, whose digests differ."
+            echo
+            echo "Verify:"
+            echo '```'
+            echo "cosign verify ${REGISTRY}/${IMAGE_NAME}:${VERSION} \\"
+            echo "  --certificate-identity-regexp 'https://github.com/${IMAGE_NAME}/' \\"
+            echo "  --certificate-oidc-issuer https://token.actions.githubusercontent.com"
+            echo "gh attestation verify oci://${REGISTRY}/${IMAGE_NAME}:${VERSION} -R ${IMAGE_NAME}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

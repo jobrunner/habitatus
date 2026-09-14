@@ -1,0 +1,25 @@
+# Per-package statement-coverage floors — a RATCHET (raise only, never lower
+# without justification). Enforced by scripts/coverage-gate.sh in CI.
+#
+# A package with no line here fails the gate. Exemptions are explicit, marked
+# with "!", so that leaving one out is a decision someone made rather than a
+# line someone forgot.
+#
+# The floors sit ~2 points below the measured values so that an unrelated
+# refactor does not trip the gate, while a real removal of tests does.
+#
+# package                        floor(%)
+internal/rulepack                86
+internal/taxa                    98
+internal/cover                   98
+internal/esy                     86
+internal/classify                89
+internal/adapters/httpapi        94
+internal/adapters/mcpapi         83
+TOTAL                            82
+
+# Exempt, deliberately: the composition root. Its flag parsing is unit-tested
+# (resolveConfig), but main() and run() bind a port, read the rule file and
+# handle signals — they are exercised by the container smoke test in CI, which
+# starts the hardened image and classifies a relevé, not by unit tests.
+!cmd/habitatus

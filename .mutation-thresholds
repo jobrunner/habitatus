@@ -1,0 +1,10 @@
+# Mutation-testing thresholds for internal/esy, enforced by the Mutation
+# workflow and by `make mutation`. A RATCHET: raise as the tests improve.
+#
+# They live here rather than in the workflow so that scripts/ratchet-baseline.py
+# can see them: a threshold that only exists inside the job it gates can be
+# lowered in the same PR that needs it lowered, and the job reports green.
+#
+# Measured 2026-09-14: efficacy 81.8 %, mutator coverage 90.4 %.
+efficacy 78
+mcover   88

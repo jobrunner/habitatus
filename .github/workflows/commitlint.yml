@@ -1,0 +1,31 @@
+# Conventional Commits validation. release-please derives the next version and
+# the CHANGELOG from the commit headers, so a non-conventional commit
+# mis-versions the release.
+name: commitlint
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# GitHub's implicit shell is `bash -e`, without pipefail: a failing command in
+# a pipeline is reported as the success of the last one. Every workflow in this
+# repository declares `bash`, which is `bash --noprofile --norc -eo pipefail`.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  commitlint:
+    name: commitlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: wagoid/commitlint-github-action@v6
+        with:
+          configFile: .commitlintrc.yml

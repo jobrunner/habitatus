@@ -20,8 +20,8 @@ feuern (`Stats.Unreachable`), in `repaired` keine. Der Modus steht in
 
 ## Pre-Merge-Gate
 
-Vor jedem Merge werden **lokal** beide Kommandos ausgeführt, und beide müssen
-grün sein:
+Beide Kommandos laufen inzwischen auch in der CI (siehe Qualitäts-Harness);
+lokal vor dem Push sind sie schneller zu haben:
 
 ```sh
 make check    # Unit-Suite + alle Real-File-Tests gegen die echte Regeldatei
@@ -38,8 +38,12 @@ Rundungsfehler. Einzeln laufen die Hälften mit `make golden-faithful` bzw.
 
 Voraussetzungen:
 
-- `ESY_FILE` — Pfad zur ESy-Regeldatei. Sie liegt nicht in diesem Repository
-  und darf von uns nicht weitergegeben werden. Default siehe `Makefile`.
+- `ESY_FILE` — Pfad zur ESy-Regeldatei. Sie liegt unter `data/esy/` in
+  diesem Repository; der `Makefile`-Default zeigt darauf, überschreibbar für
+  eine andere Version. Weitergabe ist erlaubt: der Zenodo-Record
+  doi:10.5281/zenodo.3841729 steht in allen drei Versionen (2020-06-08,
+  2021-06-01, 2025-10-03) unter **CC BY 4.0** bei offenem Zugang, verlangt
+  also nur Namensnennung — siehe `data/esy/ATTRIBUTION.md`.
 - Für `make fixtures` zusätzlich eine R-Installation und der Upstream-Klon
   unter `spike/ESy-upstream`. Die Fixtures unter `testdata/golden/` und
   `testdata/golden-repaired/` sind eingecheckt; neu erzeugt werden sie nur,
@@ -48,10 +52,187 @@ Voraussetzungen:
   Für den `repaired`-Satz patcht `spike/resy/patch-upstream.sh` eine **Kopie**
   des Upstreams unter `build/`; der Klon selbst bleibt unangetastet.
 
-## CI
+## Qualitäts-Harness
 
-Die GitHub-Action (`.github/workflows/ci.yml`) führt nur den Teil aus, der ohne
-externe Daten auskommt: `go build ./...`, `go vet ./...`, eine
-`gofmt -l .`-Prüfung und `go test ./...`. Die Tests hinter `ESY_FILE` sowie der
-Golden Master laufen dort **nicht** — die Regeldatei ist nicht öffentlich. Dafür
-ist das lokale Pre-Merge-Gate oben zuständig.
+Lokal vor dem Push: `make quality` — es enthält seit zwei Fehlschlägen auch
+`make commitlint`, weil ein Akronym am Satzanfang („CORS, off by default",
+„NaN and a malformed map") sich einwandfrei liest, gegen `subject-case`
+verstößt und erst nach dem Push auffällt. Beide Male kostete das eine
+Umschreibung der Historie.
+
+`main` ist durch das Ruleset `protect-main` geschützt: gemergt wird nur, wenn
+**alle 18** Pflicht-Checks grün sind — plus CodeQL, das über die
+`code_scanning`-Regel des Rulesets greift statt über die Check-Liste.
+Nicht erzwungen wird `gremlins`: der Job ist auf `internal/esy/**` gefiltert
+und würde jeden PR, der diesen Pfad nicht berührt, dauerhaft auf „pending"
+stehen lassen. `make quality` deckt davon die Gates ab,
+die nichts außer Go brauchen — **nicht** `sbom` (braucht syft), `codecharta`
+(braucht ccsh und eine JRE) und `golden` (elf Minuten). Diese drei laufen in
+der CI ohnehin; lokal gezielt vor einer Änderung, die sie betrifft.
+
+| Check | Werkzeug | Was er verhindert |
+|---|---|---|
+| Lint | golangci-lint (25 Linter) | die üblichen Fehlerklassen |
+| Lint / depguard | golangci-lint | Verletzung der Schichtgrenzen aus der Spec — `cover` ← `taxa` ← `esy` ← `classify` ← Adapter, keine Adapter-Querkopplung |
+| Test | `go test -race` + Real-File-Tests | Regression gegen die echte Regeldatei |
+| Test / Coverage-Ratchet | `scripts/coverage-gate.sh` | stilles Absinken der Testabdeckung je Paket |
+| Benchmarks | `go test -bench` + benchstat | Bit-Rot der Benchmarks; der Zeitvergleich ist Lesestoff, kein Gate |
+| Fuzz (smoke) | `go test -fuzz`, 1.000.000 Ausführungen je Ziel | Panics der Parser auf fremden Regeldateien |
+| Security | govulncheck | bekannte Schwachstellen in Go-Code |
+| License Compliance | go-licenses | eine Abhängigkeit unter unpassender Lizenz — erstpartei eingeschlossen, keine Ausnahmen |
+| SBOM | syft (SPDX + CycloneDX), grype | fehlende Stückliste; bekannte Lücken darin |
+| Secret Scan | gitleaks | Zugangsdaten in der Historie |
+| CodeQL | github/codeql-action | Datenflüsse quer durch das Programm — was ein Linter, der je Funktion urteilt, nicht sehen kann |
+| Architecture | `go mod tidy -diff`, Abhängigkeitsfreiheit, Regeldatei-Prüfsumme, Ratchet-Basisvergleich | eine unbemerkt eingeführte Abhängigkeit; eine stille Änderung der vendorierten Regeldatei, die jede Verifikationsaussage entwertet; ein im selben PR abgesenkter Floor oder angehobener Komplexitäts-Cap |
+| Build | `go build`, `gofmt -l` | nicht übersetzbarer oder unformatierter Stand |
+| Docker Lint | hadolint | Fehler im Dockerfile |
+| Actions Lint | actionlint | Fehler und Script-Injection in den Workflows |
+| Docker Build | Buildx + Smoke-Test | ein Image, das zwar baut, aber unter `--read-only --cap-drop=ALL` nicht antwortet |
+| Docker Security Scan | Trivy | behebbare CRITICAL/HIGH im Image |
+| Golden Master | `make golden` | jede Abweichung von der R-Implementierung — beide Modi, 11.337 Aufnahmen, 642.000 Ausdruckswerte |
+| CodeCharta | ccsh + `scripts/codecharta-ratchet.py` | Komplexitätswachstum je Datei **und** je Funktion; neue komplexe und ungetestete Dateien |
+| commitlint | commitlint | nicht-konventionelle Commits, an denen release-please die Version falsch ableitet |
+
+Nicht bei jedem PR, sondern nach Zeitplan: Fuzzing über zehn Minuten je Ziel
+(nächtlich), Mutationstests des Evaluators mit gremlins (wöchentlich und bei
+Änderungen an `internal/esy/`), sowie govulncheck und ein Trivy-Scan des Images
+gegen neu veröffentlichte CVEs (wöchentlich).
+
+`make golden` läuft **mit** — als eigener Job. Er braucht nur die vendorierte
+Regeldatei und die eingecheckten Fixtures, beide im Repository; R und der
+Upstream-Klon werden gebraucht, um die Fixtures **neu zu erzeugen**
+(`make fixtures`), nicht um gegen sie zu vergleichen. Die Parität mit der
+R-Implementierung ist die zentrale Aussage dieses Projekts — sie gehört
+abgesichert, nicht geglaubt. Rund elf Minuten je Lauf.
+
+### Zwei Ausnahmen, die benannt gehören
+
+Die Benchmarks messen, sie urteilen nicht: geteilte CI-Runner schwanken zu
+stark für eine belastbare Schwelle pro PR. Der benchstat-Vergleich gegen den
+Base-Branch landet in der Job-Zusammenfassung und ist für Menschen gedacht.
+
+Der Container-Scan blockiert nur bei **behebbaren** Funden. Eine CVE ohne
+Upstream-Fix lässt sich in einem PR nicht beheben; sie steht im Security-Tab,
+statt jeden Merge zu blockieren.
+
+## Container
+
+```sh
+make docker-build      # baut habitatus:<version> und habitatus:latest
+make docker-run        # startet es gehärtet: --read-only --cap-drop=ALL
+                        # --security-opt=no-new-privileges, Port 8080 gemappt
+```
+
+oder von Hand:
+
+```sh
+docker run --rm -p 127.0.0.1:8080:8080   --read-only --cap-drop=ALL --security-opt=no-new-privileges   habitatus:latest
+```
+
+Das Image enthält die vendorierte Regeldatei unter einem festen Pfad und
+läuft ohne weitere Argumente. Defaults kommen aus Umgebungsvariablen
+(`HABITATUS_ADDR`, `HABITATUS_RULES`, `HABITATUS_BACKBONES`,
+`HABITATUS_MODE`), nicht aus `CMD` — Docker ersetzt das ganze `CMD`-Array,
+sobald `docker run` irgendein Argument bekommt, und ein `CMD`, das `-addr`
+und `-rules` trägt, wäre dann verschwunden. Ein Flag überschreibt die
+gleichnamige Umgebungsvariable, die wiederum den eingebauten Default
+überschreibt:
+
+```sh
+# beide Wege setzen faithful; beide behalten -rules/-addr aus der ENV
+docker run --rm -p 127.0.0.1:8080:8080 habitatus:latest -mode faithful
+docker run --rm -p 127.0.0.1:8080:8080 -e HABITATUS_MODE=faithful habitatus:latest
+```
+
+Wer eine andere Regelwerksversion mounten will, setzt `-rules` bzw.
+`HABITATUS_RULES` auf den gemounteten Pfad. Der eingebaute Default ist ebenfalls `127.0.0.1:8080` — wer das Binary ohne
+Container startet, veröffentlicht nichts. Das Image überschreibt das mit
+`HABITATUS_ADDR=:8080`, weil der Port dort nur über ein explizites `-p`
+erreichbar ist.
+
+Alle Beispiele binden bewusst an `127.0.0.1`: Docker schreibt eigene
+iptables-Regeln, und ein schlichtes `8080:8080` veröffentlicht den
+unauthentifizierten Dienst auf allen Interfaces — auch wenn `ufw` es verbietet.
+Die Härtungsflags schützen den Prozess, nicht den Netzzugang, und CORS ist keine
+Zugriffskontrolle. Der Container läuft als
+`nonroot` (uid 65532) — eine gemountete Datei muss für dieses uid lesbar
+sein, sonst scheitert der Start sichtbar mit einer Fehlermeldung, die die
+Datei nennt.
+
+Kein `HEALTHCHECK`: das Image hat weder Shell noch `curl`. Orchestratoren
+sollen stattdessen direkt gegen `GET /health/ready` prüfen.
+
+### CORS
+
+Standardmäßig **aus**. Eingeschaltet wird sie mit einer Liste erlaubter
+Herkünfte:
+
+```sh
+docker run ... -e HABITATUS_CORS='https://app.example, http://localhost:5173'
+docker run ... habitatus:latest -cors '*'      # jede Herkunft
+```
+
+Ohne diese Angabe ist die API **aus einem Browser heraus nicht erreichbar** —
+nicht eingeschränkt, sondern gar nicht: `POST /api/v1/classify` nimmt
+`application/json`, und das ist kein CORS-einfacher Content-Type, also schickt
+jeder Browser zuerst einen `OPTIONS`-Preflight. Ohne CORS beantwortet der Mux
+den mit `405`, und der Browser sendet die eigentliche Anfrage nie. Ein Client
+serverseitig (curl, Go, R) ist davon nicht betroffen.
+
+Warum trotzdem aus als Default: der Dienst bindet an `127.0.0.1` und erwartet
+einen Reverse Proxy davor. Ein permissiver Default würde bei einer internen
+Installation jeder beliebigen Webseite, die ein Nutzer öffnet, den Zugriff
+darauf erlauben. Die Entscheidung gehört dem Betreiber — sie ist eine
+Umgebungsvariable weit.
+
+Gesetzt werden `Access-Control-Allow-Origin` (die Herkunft des Aufrufers,
+nicht die Liste), `Vary: Origin` — damit ein Cache davor nicht die Antwort für
+eine Herkunft an eine andere ausliefert — und beim Preflight zusätzlich
+`Allow-Methods`, `Allow-Headers` und `Max-Age`. **Kein**
+`Allow-Credentials`: der Dienst hat weder Sitzungen noch Authentifizierung,
+also gibt es keine Rechte, die ein Browser mittragen könnte.
+
+Eine unbrauchbare Angabe (`a.example` ohne Schema, `*` mit benannten Herkünften
+gemischt) stoppt den Start mit einer Meldung, die den Wert nennt, statt mit
+einer halb konfigurierten CORS weiterzulaufen.
+
+### Deployment auf einem Docker-Host
+
+`docker-compose.deploy.yml` zieht ein veröffentlichtes Image, statt wie
+`docker-compose.yml` aus diesem Checkout zu bauen:
+
+```sh
+docker compose -f docker-compose.deploy.yml up -d
+docker compose -f docker-compose.deploy.yml logs -f
+```
+
+Es setzt voraus, dass ein `v*`-Tag existiert — erst der löst
+`docker-release.yml` aus, das nach `ghcr.io/jobrunner/habitatus` veröffentlicht
+(multi-arch, cosign-signiert, mit SPDX-SBOM). Solange keiner gesetzt ist, die
+`image:`-Zeile durch einen `build:`-Block ersetzen; der Kommentar in der Datei
+sagt, wie.
+
+Drei Entscheidungen darin, die man kennen sollte:
+
+- **Der Port ist an `127.0.0.1` gebunden.** Docker schreibt eigene
+  iptables-Regeln; ein schlichtes `8080:8080` wäre aus dem Internet erreichbar,
+  auch wenn `ufw` es verbietet. Davor gehört ein Reverse Proxy.
+- **Der Modus steht explizit in der Datei**, nicht auf dem Image-Default. Er
+  entscheidet, was eine Antwort bedeutet, und taucht in `versions` jeder
+  Antwort auf.
+- **Speichergrenze 512 MB**, gegen gemessene Werte: 36 MB nach Start, 52 MB
+  nach 20 Anfragen, 80 MB nach 200 parallelen. `stop_grace_period: 15s` liegt
+  über dem 10-Sekunden-Drain aus `cmd/habitatus/main.go` — bei Dockers Default
+  von 10 s würde der Container mitten in einer Anfrage abgeschossen.
+
+## Lizenz
+
+Der Code steht unter der **MIT-Lizenz** (`LICENSE`).
+
+Die mitgelieferten **Daten nicht**: `data/esy/EUNIS-ESy-2025-10-03.txt` ist das
+EUNIS-ESy-Regelwerk unter **CC BY 4.0** (Zenodo
+doi:10.5281/zenodo.3841729) — Autoren, geforderte Namensnennung und Prüfsumme
+stehen in `data/esy/ATTRIBUTION.md`. Die Fixtures unter `testdata/golden/` und
+`testdata/golden-repaired/` sind daraus abgeleitet und tragen dieselben
+Bedingungen. Wer habitatus weitergibt, gibt beides weiter und muss die
+Namensnennung mitführen.

@@ -1,0 +1,19 @@
+# Keeps the build context small. Without this, spike/ESy-upstream alone (a
+# 510 MB clone of the R reference implementation, sometimes a symlink to one)
+# would be sent to the daemon on every build.
+.git
+.github
+.claude
+build/
+spike/ESy-upstream
+spike/ESy-upstream/
+testdata/golden/*.jsonl
+testdata/golden-repaired/*.jsonl
+docs/
+*.md
+!data/esy/ATTRIBUTION.md
+!README.md
+habitatus
+
+# Created on demand by `make commitlint`.
+node_modules/

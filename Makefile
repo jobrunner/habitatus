@@ -1,5 +1,9 @@
 UPSTREAM ?= spike/ESy-upstream
-ESY_FILE ?= $(HOME)/work/projects/eunis/EUNIS-ESy/EUNIS-ESy-2025-10-03.txt
+# The vendored copy under data/esy/ — CC BY 4.0, see data/esy/ATTRIBUTION.md.
+# Override to run against a different rule-file version; its checksum must
+# then match what testdata/golden{,-repaired}/rulepack.sha256 expect, or the
+# golden masters' staleness guard refuses to run.
+ESY_FILE ?= $(CURDIR)/data/esy/EUNIS-ESy-2025-10-03.txt
 GOLDEN   ?= testdata/golden
 
 # The repaired oracle: a patched COPY of the upstream tree (see
@@ -9,7 +13,8 @@ UPSTREAM_REPAIRED ?= build/ESy-upstream-repaired
 GOLDEN_REPAIRED   ?= testdata/golden-repaired
 
 .PHONY: test check fixtures fixtures-faithful fixtures-repaired synthetic \
-	golden golden-faithful golden-repaired clean-fixtures
+	golden golden-faithful golden-repaired clean-fixtures \
+	lint cover bench fuzz mutation licenses sbom codecharta commitlint quality
 
 test:
 	go test ./...
@@ -74,3 +79,129 @@ clean-fixtures:
 	rm -f $(GOLDEN)/*.jsonl $(GOLDEN)/*.json $(GOLDEN)/rulepack.sha256 $(GOLDEN)/upstream.commit
 	rm -f $(GOLDEN_REPAIRED)/*.jsonl $(GOLDEN_REPAIRED)/*.json \
 	  $(GOLDEN_REPAIRED)/rulepack.sha256 $(GOLDEN_REPAIRED)/upstream.commit
+
+# release-please owns the VERSION file; the git fallback keeps a checkout
+# without one buildable.
+VERSION ?= $(shell head -n1 VERSION 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo dev)
+COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+
+.PHONY: docker-build docker-run
+
+docker-build:
+	docker build --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) -t habitatus:$(VERSION) -t habitatus:latest .
+
+# Runs the hardened image the same way `make docker-build`'s output is meant
+# to be operated: read-only root fs, no capabilities, no privilege
+# escalation. If this doesn't work, the Dockerfile is wrong, not the flags.
+docker-run:
+	docker run --rm -p 127.0.0.1:8080:8080 \
+	  --read-only --cap-drop=ALL --security-opt=no-new-privileges \
+	  habitatus:latest
+
+# =============================================================================
+# Quality harness. `make quality` is the local equivalent of the CI gate — run
+# it before opening a PR and the required checks should pass.
+# =============================================================================
+
+BENCHCOUNT ?= 6
+# Executions, not wall-clock. A duration makes the gate do less work on a slow
+# runner and, worse, races Go's own fuzzing shutdown: when the timer fires
+# mid-execution the coordinator can report "context deadline exceeded" as a
+# test failure with no crasher to show for it. That turned a required check
+# into a coin flip. An execution count is deterministic across machines.
+FUZZTIME   ?= 1000000x
+
+lint:
+	golangci-lint run --timeout=5m
+
+# cover runs the suite with the race detector and enforces the per-package
+# floors in .coverage-floors. The floors are a raise-only ratchet: the fix for
+# a failure is to add tests.
+cover:
+	go test -race -coverprofile=coverage.out -covermode=atomic ./...
+	./scripts/coverage-gate.sh coverage.out
+
+# Benchmarks are a compile-and-run gate, not a timing threshold: shared CI
+# runners are far too noisy for a per-PR latency bound. CI posts a benchstat
+# delta against the base branch for a human to read.
+bench:
+	ESY_FILE=$(ESY_FILE) go test -run '^$$' -bench . -benchmem -count=$(BENCHCOUNT) ./...
+
+# The rule file is third-party input. These targets fuzz the parsers that read
+# it; a crash found here is a start-up crash avoided in production.
+# FUZZTIME takes either form — `make fuzz FUZZTIME=10m` for a long hunt.
+fuzz:
+	@for t in FuzzParseExpr FuzzParseFormula FuzzSplitSections FuzzLoad; do \
+	  echo "==> $$t"; \
+	  go test -run '^$$' -fuzz "$$t" -fuzztime=$(FUZZTIME) ./internal/rulepack/ || exit 1; \
+	done
+
+# Mutation testing: coverage says a line ran, mutation says a test would have
+# caught a bug in it. The thresholds are a ratchet, raised as tests improve.
+mutation:
+	gremlins unleash ./internal/esy --timeout-coefficient=20 \
+	  --threshold-efficacy=$$(awk '$$1=="efficacy"{print $$2}' .mutation-thresholds) \
+	  --threshold-mcover=$$(awk '$$1=="mcover"{print $$2}' .mutation-thresholds)
+
+# Every dependency of the shipped binary must carry a permissive licence. The
+# core has no third-party dependencies at all, so this gate mainly guards
+# against one being added unnoticed.
+# Every package reachable from the binary must carry a permissive licence,
+# first-party included: go-licenses classifies each package by the nearest
+# LICENSE file, and this repository's is MIT. The core has no third-party
+# dependencies at all, so in practice this guards against the first one being
+# added under a licence we cannot ship.
+licenses:
+	go-licenses check ./cmd/habitatus \
+	  --allowed_licenses=Apache-2.0,BSD-2-Clause,BSD-3-Clause,MIT,ISC,MPL-2.0,Unlicense
+
+# A Software Bill of Materials for the source tree, in both formats consumers
+# ask for. The release image carries its own SBOM attestation as well.
+sbom:
+	mkdir -p build
+	syft scan dir:. -o spdx-json=build/sbom.spdx.json -o cyclonedx-json=build/sbom.cyclonedx.json
+	@echo "wrote build/sbom.spdx.json and build/sbom.cyclonedx.json"
+
+# The CodeCharta map plus its ratchet gate. Needs ccsh (npm install -g
+# codecharta-analysis), a JRE and gcov2lcov.
+codecharta:
+	mkdir -p build
+	ccsh unifiedparser . -fe=go -e='_test\.go,vendor,spike,build' -nc -o build/base.cc.json
+	go test -coverprofile=build/cc.out ./... || true
+	gcov2lcov -infile=build/cc.out -outfile=build/coverage.info
+	ccsh coverageimport build/coverage.info -f lcov -nc -o build/coverage.cc.json
+	ccsh gitlogparser repo-scan --repo-path=. --add-author --silent -nc -o build/git.cc.json
+	ccsh merge build/base.cc.json build/git.cc.json build/coverage.cc.json -o build/habitatus.cc.json.gz
+	python3 scripts/codecharta-ratchet.py build/habitatus.cc.json.gz .codecharta-ratchet.json
+
+COMMITLINT_FROM ?= origin/main
+
+# The commit subjects on this branch, against the same rules CI applies.
+# Worth a target rather than discipline: an acronym at the start of a subject
+# ("CORS, off by default", "NaN and a malformed map") reads perfectly well and
+# trips subject-case, and the failure only shows up after a push — twice here,
+# each time costing a history rewrite.
+#
+# The packages go into a gitignored node_modules at the repo root rather than
+# through npx: commitlint resolves `extends` from the config file's own
+# directory, and an npx temp install is not on that path.
+commitlint:
+	@command -v npm >/dev/null 2>&1 || { \
+	  echo "commitlint: npm not found. This gate is required in CI, so skipping"; \
+	  echo "            it here would let \`make quality\` report green having not"; \
+	  echo "            run it — install node, or run this target's check with"; \
+	  echo "            the wagoid/commitlint-github-action image."; \
+	  exit 1; }
+	@[ -x node_modules/.bin/commitlint ] || npm install --no-save --no-audit --no-fund --silent \
+	  @commitlint/cli@19 @commitlint/config-conventional@19
+	@node_modules/.bin/commitlint --config .commitlintrc.yml --from $(COMMITLINT_FROM) --to HEAD \
+	  && echo "commitlint: every subject on this branch is conventional"
+
+# The CI gates that need no tooling beyond Go: lint, tests with the coverage
+# ratchet, the real-file tests, benchmarks, a short fuzz pass and the licence
+# check. Deliberately NOT the same set as CI — `sbom` needs syft, `codecharta`
+# needs ccsh and a JRE, and `golden` takes eleven minutes. Run those before a
+# change that touches what they cover; CI runs all of them regardless.
+quality: lint cover check bench licenses
+	$(MAKE) fuzz FUZZTIME=200000x
+	$(MAKE) commitlint

@@ -1,0 +1,20 @@
+# gitleaks config for habitatus.
+title = "habitatus gitleaks config"
+
+[extend]
+useDefault = true
+
+# Only the generated and vendored DATA FILES are exempt, named by pattern —
+# not the directories that hold them. A whole-tree allowlist would have made a
+# credential in ATTRIBUTION.md, in a backbone README, or in any file added to
+# those directories later invisible, while the Secret Scan went on reporting
+# green. The exemptions exist for one concrete reason: the rule file is 165,260
+# lines of taxon names and codes, some of which trip entropy rules, and the
+# golden-master fixtures are generated from it.
+[allowlist]
+description = "The vendored rule file and the fixtures generated from it, by name. Everything else — source, prose, checksums, and any other file in these directories — is scanned."
+paths = [
+  '''data/esy/EUNIS-ESy-\d{4}-\d{2}-\d{2}\.txt$''',
+  '''testdata/golden(-repaired)?/[^/]+\.jsonl$''',
+  '''testdata/golden(-repaired)?/[^/]+\.json$''',
+]

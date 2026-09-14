@@ -19,12 +19,19 @@ import (
 //go:embed esy-country-names.csv
 var countryCSV string
 
+// The sentinels for "this plot is not on a coast" and "not on a dune". ortus
+// delivers them for every inland point, so they are the common case.
+const (
+	valueNoCoast = "N_COAST"
+	valueNoDunes = "N_DUNES"
+)
+
 var (
 	coastValues = map[string]bool{
 		"ARC_COAST": true, "ATL_COAST": true, "BAL_COAST": true,
-		"BLA_COAST": true, "MED_COAST": true, "N_COAST": true,
+		"BLA_COAST": true, "MED_COAST": true, valueNoCoast: true,
 	}
-	duneValues = map[string]bool{"Y_DUNES": true, "N_DUNES": true}
+	duneValues = map[string]bool{"Y_DUNES": true, valueNoDunes: true}
 	countries  = mustLoadCountries(countryCSV)
 )
 
@@ -111,31 +118,61 @@ func parseCountries(csvText string) (map[string]bool, error) {
 	return out, nil
 }
 
+// Header field names. They are the ESy column headers verbatim — the rule
+// file compares against these spellings, so they are wire format, not labels.
+const (
+	fieldCountry  = "Country"
+	fieldCoast    = "Coast_EEA"
+	fieldDunes    = "Dunes_Bohn"
+	fieldEcoreg   = "Ecoreg"
+	fieldAltitude = "Altitude (m)"
+	fieldLat      = "DEG_LAT"
+	fieldLon      = "DEG_LON"
+)
+
 // ValidateHeader checks the plot header against the vocabularies the rules
 // compare against. Values are rejected rather than treated as unknown: a
 // misspelled country would otherwise silently suppress every rule that tests it,
 // with no error anywhere.
 func ValidateHeader(h map[string]string) error {
-	for _, f := range []string{"Country", "Coast_EEA", "Dunes_Bohn", "Ecoreg",
-		"Altitude (m)", "DEG_LAT", "DEG_LON"} {
+	for _, f := range []string{fieldCountry, fieldCoast, fieldDunes, fieldEcoreg,
+		fieldAltitude, fieldLat, fieldLon} {
 		if strings.TrimSpace(h[f]) == "" {
 			return invalidf("header field %q is required", f)
 		}
 	}
-	if !countries[h["Country"]] {
-		return invalidf("Country %q is not an ESy country name; see data/esy-country-names.csv", h["Country"])
+	if err := validateEnums(h); err != nil {
+		return err
 	}
-	if !coastValues[h["Coast_EEA"]] {
-		return invalidf("Coast_EEA %q is not one of ARC_/ATL_/BAL_/BLA_/MED_/N_COAST", h["Coast_EEA"])
+	return validateNumbers(h)
+}
+
+// validateEnums checks the four fields whose values come from a closed set.
+func validateEnums(h map[string]string) error {
+	if !countries[h[fieldCountry]] {
+		return invalidf("Country %q is not an ESy country name; see data/esy-country-names.csv", h[fieldCountry])
 	}
-	if !duneValues[h["Dunes_Bohn"]] {
-		return invalidf("Dunes_Bohn %q is not Y_DUNES or N_DUNES", h["Dunes_Bohn"])
+	if !coastValues[h[fieldCoast]] {
+		return invalidf("Coast_EEA %q is not one of ARC_/ATL_/BAL_/BLA_/MED_/N_COAST", h[fieldCoast])
 	}
-	if _, err := strconv.Atoi(h["Ecoreg"]); err != nil {
-		return invalidf("Ecoreg %q is not an integer ECO_ID", h["Ecoreg"])
+	if !duneValues[h[fieldDunes]] {
+		return invalidf("Dunes_Bohn %q is not Y_DUNES or N_DUNES", h[fieldDunes])
 	}
+	if _, err := strconv.Atoi(h[fieldEcoreg]); err != nil {
+		return invalidf("Ecoreg %q is not an integer ECO_ID", h[fieldEcoreg])
+	}
+	return nil
+}
+
+// validateNumbers parses the three numeric fields and range-checks them.
+// Non-finite values are rejected explicitly: NaN compares false against every
+// bound, so a range check alone would let it through and it would then poison
+// every group total it reaches.
+func validateNumbers(h map[string]string) error {
+	// Three locals, not a map: this runs on every classification request, and
+	// a map here allocates on the heap for no gain.
 	var alt, lat, lon float64
-	for _, f := range []string{"Altitude (m)", "DEG_LAT", "DEG_LON"} {
+	for _, f := range []string{fieldAltitude, fieldLat, fieldLon} {
 		v, err := strconv.ParseFloat(h[f], 64)
 		if err != nil {
 			return invalidf("%s %q is not a number", f, h[f])
@@ -144,11 +181,11 @@ func ValidateHeader(h map[string]string) error {
 			return invalidf("%s %q must be a finite number", f, h[f])
 		}
 		switch f {
-		case "Altitude (m)":
+		case fieldAltitude:
 			alt = v
-		case "DEG_LAT":
+		case fieldLat:
 			lat = v
-		case "DEG_LON":
+		case fieldLon:
 			lon = v
 		}
 	}

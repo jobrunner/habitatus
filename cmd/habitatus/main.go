@@ -3,10 +3,9 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -24,54 +23,154 @@ import (
 	"github.com/jobrunner/habitatus/internal/rulepack"
 )
 
-func main() {
-	addr := flag.String("addr", ":8080", "listen address")
-	rulesPath := flag.String("rules", "", "path to the ESy rule file")
-	backbonesPath := flag.String("backbones", "", "path to the directory of nomenclature translation tables (optional)")
-	mcp := flag.Bool("mcp", false, "serve MCP over stdio instead of HTTP")
-	modeName := flag.String("mode", esy.Repaired.String(),
+// version and commit identify the build. They stay at their zero values for
+// `go build`/`go run`; the release Dockerfile stamps real values in via
+// `-ldflags "-X main.version=... -X main.commit=..."` so a running binary
+// can be traced back to the source it was built from.
+var (
+	version = "dev"
+	commit  = "unknown"
+)
+
+// config holds everything main needs after flags and environment are
+// resolved. Kept separate from flag.FlagSet so resolveConfig is callable
+// from a test without starting a server or touching the real environment.
+// errConfig marks a configuration error this program raised itself, as
+// opposed to one the flag package already reported. main prints only the
+// former: the flag package writes its own message and usage to stderr, and a
+// second copy would be noise — but an unreported error is worse than noise.
+// Exiting 2 in silence is how an operator ends up staring at a container that
+// stops with no reason given.
+var errConfig = errors.New("invalid configuration")
+
+type config struct {
+	addr          string
+	rulesPath     string
+	backbonesPath string
+	modeName      string
+	corsOrigins   []string
+	mcp           bool
+}
+
+// resolveConfig applies -addr/-rules/-backbones/-mode/-mcp with the
+// precedence a container operator expects: an explicit flag beats the
+// matching environment variable, which beats the built-in default. This is
+// what lets `docker run habitatus -mode faithful` work at all — with the
+// old plain CMD-array defaults, passing any argument replaced the whole
+// CMD, including -rules and -addr, and the container exited on "missing
+// -rules". Environment variables live outside CMD and survive that.
+func resolveConfig(env func(string) string, args []string) (config, error) {
+	envOrDefault := func(key, def string) string {
+		if v := env(key); v != "" {
+			return v
+		}
+		return def
+	}
+
+	fs := flag.NewFlagSet("habitatus", flag.ContinueOnError)
+	// 127.0.0.1, not ":8080": the built-in default is what a bare `habitatus
+	// -rules …` gets, and this API is unauthenticated — including /metrics.
+	// Listening on every interface by default contradicts what the README and
+	// the compose files argue, and "the operator will bind it properly" is not
+	// a property of a default. The container sets HABITATUS_ADDR=:8080
+	// explicitly, because there the port is reachable only through an explicit
+	// -p mapping.
+	addr := fs.String("addr", envOrDefault("HABITATUS_ADDR", "127.0.0.1:8080"),
+		"listen address; the default is loopback only")
+	rulesPath := fs.String("rules", envOrDefault("HABITATUS_RULES", ""), "path to the ESy rule file")
+	backbonesPath := fs.String("backbones", envOrDefault("HABITATUS_BACKBONES", ""),
+		"path to the directory of nomenclature translation tables (optional)")
+	mcp := fs.Bool("mcp", false, "serve MCP over stdio instead of HTTP")
+	cors := fs.String("cors", envOrDefault("HABITATUS_CORS", ""),
+		"comma-separated origins allowed to call the API from a browser "+
+			"(scheme://host[:port]), or * for any; empty keeps CORS off")
+	modeName := fs.String("mode", envOrDefault("HABITATUS_MODE", esy.Repaired.String()),
 		"evaluation semantics: "+strings.Join(esy.ModeNames(), "|")+
 			" (repaired evaluates the expressions ESy v1.2 forces to FALSE by "+
 			"coercing their numeric value, as R did up to v1.1; faithful "+
 			"reproduces v1.2 as shipped)")
-	flag.Parse()
+
+	if err := fs.Parse(args); err != nil {
+		return config{}, err
+	}
+
+	origins, err := httpapi.ParseOrigins(*cors)
+	if err != nil {
+		return config{}, fmt.Errorf("%w: %w", errConfig, err)
+	}
+
+	return config{
+		addr:          *addr,
+		rulesPath:     *rulesPath,
+		backbonesPath: *backbonesPath,
+		modeName:      *modeName,
+		corsOrigins:   origins,
+		mcp:           *mcp,
+	}, nil
+}
+
+func main() {
+	cfg, err := resolveConfig(os.Getenv, os.Args[1:])
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			os.Exit(0)
+		}
+		if errors.Is(err, errConfig) {
+			fmt.Fprintln(os.Stderr, err)
+		}
+		os.Exit(2)
+	}
 
 	// Logging always goes to stderr, never stdout. In -mcp mode stdout is
 	// the JSON-RPC transport; even one stray log line on stdout before the
 	// first protocol message would corrupt the stream for the client
 	// reading it.
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	log.Info("habitatus starting", "version", version, "commit", commit)
 
-	if *rulesPath == "" {
-		log.Error("missing -rules")
+	if cfg.rulesPath == "" {
+		log.Error("missing -rules (or HABITATUS_RULES)")
 		os.Exit(2)
 	}
 
-	mode, err := esy.ParseMode(*modeName)
+	mode, err := esy.ParseMode(cfg.modeName)
 	if err != nil {
-		log.Error("invalid -mode", "err", err)
+		log.Error("invalid -mode (or HABITATUS_MODE)", "err", err)
 		os.Exit(2)
 	}
 
-	if err := run(log, *addr, *rulesPath, *backbonesPath, *mcp, mode); err != nil {
+	// Logged so an operator reading the startup log after the fact can see
+	// exactly which rule file and mode a run resolved to, regardless of
+	// whether that came from a flag, an environment variable, or the
+	// built-in default.
+	log.Info("configuration resolved",
+		"addr", cfg.addr, "rules", cfg.rulesPath, "backbones", cfg.backbonesPath, "mode", cfg.modeName)
+
+	if err := run(log, cfg, mode); err != nil {
 		log.Error("habitatus exited with an error", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(log *slog.Logger, addr, rulesPath, backbonesPath string, mcp bool, mode esy.Mode) error {
+// run takes the whole config rather than a growing parameter list: every
+// option here is one an operator sets, and threading them individually made
+// adding the CORS allowlist a change to the signature rather than to the
+// struct that already describes the configuration.
+func run(log *slog.Logger, cfg config, mode esy.Mode) error {
+	addr, rulesPath, backbonesPath, mcp := cfg.addr, cfg.rulesPath, cfg.backbonesPath, cfg.mcp
 	// Logged before anything else the service does: which semantics a run
 	// used decides what its answers mean, and an operator reading the log
 	// after the fact must not have to infer it.
 	log.Info("evaluation mode", "mode", mode.String())
 
+	//nolint:gosec // the rule file path is an operator-supplied flag; reading it is the program's purpose
 	f, err := os.Open(rulesPath)
 	if err != nil {
 		return errors.New("cannot open rule file: " + err.Error())
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
-	digest, err := fileDigest(f)
+	digest, err := rulepack.Digest(f)
 	if err != nil {
 		return errors.New("cannot digest rule file: " + err.Error())
 	}
@@ -136,7 +235,7 @@ func run(log *slog.Logger, addr, rulesPath, backbonesPath string, mcp bool, mode
 	svc := classify.NewService(pack, backbones, versions, mode)
 
 	if mcp {
-		if err := mcpapi.NewServer(svc).Serve(os.Stdin, os.Stdout); err != nil {
+		if err := mcpapi.NewServer(svc, version).Serve(os.Stdin, os.Stdout); err != nil {
 			return errors.New("mcp server stopped: " + err.Error())
 		}
 		return nil
@@ -144,7 +243,7 @@ func run(log *slog.Logger, addr, rulesPath, backbonesPath string, mcp bool, mode
 
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           httpapi.NewServer(svc),
+		Handler:           httpapi.WithCORS(httpapi.NewServer(svc), cfg.corsOrigins),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
@@ -176,12 +275,4 @@ func run(log *slog.Logger, addr, rulesPath, backbonesPath string, mcp bool, mode
 		log.Info("shut down cleanly")
 		return nil
 	}
-}
-
-func fileDigest(r io.Reader) (string, error) {
-	h := sha256.New()
-	if _, err := io.Copy(h, r); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
 }

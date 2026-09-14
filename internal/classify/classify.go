@@ -10,6 +10,11 @@ import (
 	"github.com/jobrunner/habitatus/internal/taxa"
 )
 
+// DefaultBackbone is the nomenclature the ESy rule file itself is written in:
+// its section 1 is the Euro+Med translation table, so a request naming this
+// backbone needs no extra table.
+const DefaultBackbone = "euro+med"
+
 // Request is one classification request.
 type Request struct {
 	Records  []taxa.Record
@@ -79,7 +84,7 @@ type Service struct {
 }
 
 // NewService builds a service. backbones maps a backbone id to its translation
-// table; the id "euro+med" is the identity and needs no table. mode selects
+// table; the id DefaultBackbone is the identity and needs no table. mode selects
 // the evaluation semantics (see esy.Mode) and is reported in the versions map
 // of every response: a result whose semantics the caller cannot identify is
 // not interpretable.
@@ -185,7 +190,7 @@ func (s *Service) Classify(req Request) (Response, error) {
 		return Response{}, err
 	}
 	var table map[string]string
-	if req.Backbone != "euro+med" {
+	if req.Backbone != DefaultBackbone {
 		t, ok := s.backbones[req.Backbone]
 		if !ok {
 			return Response{}, invalidf("unknown backbone %q", req.Backbone)
