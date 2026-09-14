@@ -87,9 +87,17 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
+      # install-mode: goinstall builds the linter with the toolchain setup-go
+      # just installed, instead of downloading the release binary. The
+      # published binary is built with an older Go, and golangci-lint cannot
+      # parse source that requires a newer one — with GO_VERSION at 1.27.1 it
+      # panics on the standard library itself: "file requires newer Go version
+      # go1.27 (application built with go1.26)". Verified locally: the same
+      # v2.12.2, built from source with 1.27.1, reports 0 issues.
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
+          install-mode: goinstall
           args: --timeout=5m
 
   # ===========================================================================

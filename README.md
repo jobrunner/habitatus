@@ -72,7 +72,7 @@ der CI ohnehin; lokal gezielt vor einer Änderung, die sie betrifft.
 
 | Check | Werkzeug | Was er verhindert |
 |---|---|---|
-| Lint | golangci-lint (25 Linter) | die üblichen Fehlerklassen |
+| Lint | golangci-lint (25 Linter, aus Quellen gebaut) | die üblichen Fehlerklassen |
 | Lint / depguard | golangci-lint | Verletzung der Schichtgrenzen aus der Spec — `cover` ← `taxa` ← `esy` ← `classify` ← Adapter, keine Adapter-Querkopplung |
 | Test | `go test -race` + Real-File-Tests | Regression gegen die echte Regeldatei |
 | Test / Coverage-Ratchet | `scripts/coverage-gate.sh` | stilles Absinken der Testabdeckung je Paket |
