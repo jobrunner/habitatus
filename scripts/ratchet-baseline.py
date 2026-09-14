@@ -40,6 +40,16 @@ def at(ref, path):
     return p.stdout if p.returncode == 0 else None
 
 
+def _number(s):
+    """float() accepts 'nan' and 'inf'. A threshold or floor set to NaN makes
+    every comparison here false — h[k] < v included — so a lowering would be
+    reported as unchanged. Non-finite values are not numbers for this purpose."""
+    v = float(s)
+    if v != v or v in (float("inf"), float("-inf")):
+        raise ValueError(f"non-finite value {s!r}")
+    return v
+
+
 def floors(text):
     out = {}
     for line in (text or "").splitlines():
@@ -49,7 +59,7 @@ def floors(text):
         parts = line.split()
         if len(parts) >= 2:
             try:
-                out[parts[0]] = float(parts[1])
+                out[parts[0]] = _number(parts[1])
             except ValueError:
                 continue
     return out
@@ -59,8 +69,8 @@ def check_floors(base, head, bad):
     b, h = floors(base), floors(head)
     for pkg, floor in sorted(b.items()):
         if pkg not in h:
-            bad.append(f".coverage-floors: {pkg} (floor {floor:g}) was removed — "
-                       f"a package with no floor is a package with no gate")
+            bad.append(f".coverage-floors: {pkg} (floor {floor:g}) is gone or no longer "
+                       f"a finite number — a package with no usable floor has no gate")
         elif h[pkg] < floor:
             bad.append(f".coverage-floors: {pkg} lowered {floor:g} -> {h[pkg]:g}")
 
@@ -80,7 +90,7 @@ def thresholds(text):
         parts = line.split()
         if len(parts) >= 2:
             try:
-                out[parts[0]] = float(parts[1])
+                out[parts[0]] = _number(parts[1])
             except ValueError:
                 continue
     return out
@@ -92,7 +102,8 @@ def check_thresholds(base, head, bad):
     b, h = thresholds(base), thresholds(head)
     for k, v in sorted(b.items()):
         if k not in h:
-            bad.append(f".mutation-thresholds: {k} ({v:g}) was removed")
+            bad.append(f".mutation-thresholds: {k} ({v:g}) is gone or no longer a "
+                       f"finite number")
         elif h[k] < v:
             bad.append(f".mutation-thresholds: {k} lowered {v:g} -> {h[k]:g}")
 
