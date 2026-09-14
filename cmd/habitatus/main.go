@@ -68,7 +68,15 @@ func resolveConfig(env func(string) string, args []string) (config, error) {
 	}
 
 	fs := flag.NewFlagSet("habitatus", flag.ContinueOnError)
-	addr := fs.String("addr", envOrDefault("HABITATUS_ADDR", ":8080"), "listen address")
+	// 127.0.0.1, not ":8080": the built-in default is what a bare `habitatus
+	// -rules …` gets, and this API is unauthenticated — including /metrics.
+	// Listening on every interface by default contradicts what the README and
+	// the compose files argue, and "the operator will bind it properly" is not
+	// a property of a default. The container sets HABITATUS_ADDR=:8080
+	// explicitly, because there the port is reachable only through an explicit
+	// -p mapping.
+	addr := fs.String("addr", envOrDefault("HABITATUS_ADDR", "127.0.0.1:8080"),
+		"listen address; the default is loopback only")
 	rulesPath := fs.String("rules", envOrDefault("HABITATUS_RULES", ""), "path to the ESy rule file")
 	backbonesPath := fs.String("backbones", envOrDefault("HABITATUS_BACKBONES", ""),
 		"path to the directory of nomenclature translation tables (optional)")

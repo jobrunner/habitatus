@@ -145,7 +145,12 @@ docker run --rm -p 127.0.0.1:8080:8080 -e HABITATUS_MODE=faithful habitatus:late
 ```
 
 Wer eine andere Regelwerksversion mounten will, setzt `-rules` bzw.
-`HABITATUS_RULES` auf den gemounteten Pfad. Alle Beispiele binden bewusst an `127.0.0.1`: Docker schreibt eigene
+`HABITATUS_RULES` auf den gemounteten Pfad. Der eingebaute Default ist ebenfalls `127.0.0.1:8080` — wer das Binary ohne
+Container startet, veröffentlicht nichts. Das Image überschreibt das mit
+`HABITATUS_ADDR=:8080`, weil der Port dort nur über ein explizites `-p`
+erreichbar ist.
+
+Alle Beispiele binden bewusst an `127.0.0.1`: Docker schreibt eigene
 iptables-Regeln, und ein schlichtes `8080:8080` veröffentlicht den
 unauthentifizierten Dienst auf allen Interfaces — auch wenn `ufw` es verbietet.
 Die Härtungsflags schützen den Prozess, nicht den Netzzugang, und CORS ist keine

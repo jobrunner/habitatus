@@ -55,6 +55,9 @@ COPY data/esy/ATTRIBUTION.md /data/esy/ATTRIBUTION.md
 # name overriding when given, so both `docker run habitatus -mode faithful`
 # and `docker run -e HABITATUS_MODE=faithful habitatus` work. CMD stays
 # empty; there is nothing left for it to carry.
+# :8080, overriding the binary's loopback default: inside a container the
+# port is reachable only through an explicit -p mapping, and a process bound
+# to 127.0.0.1 there would answer nobody but itself.
 ENV HABITATUS_ADDR=:8080
 ENV HABITATUS_RULES=/data/esy/EUNIS-ESy-2025-10-03.txt
 

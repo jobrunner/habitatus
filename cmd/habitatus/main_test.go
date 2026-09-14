@@ -24,7 +24,7 @@ func TestResolveConfigPrecedence(t *testing.T) {
 			name: "built-in defaults, nothing set",
 			env:  nil,
 			args: nil,
-			want: config{addr: ":8080", rulesPath: "", backbonesPath: "", modeName: "repaired"},
+			want: config{addr: "127.0.0.1:8080", rulesPath: "", backbonesPath: "", modeName: "repaired"},
 		},
 		{
 			name: "environment overrides built-in defaults",
@@ -60,26 +60,26 @@ func TestResolveConfigPrecedence(t *testing.T) {
 			name: "mcp flag has no environment equivalent, defaults false",
 			env:  nil,
 			args: []string{"-mcp"},
-			want: config{addr: ":8080", modeName: "repaired", mcp: true},
+			want: config{addr: "127.0.0.1:8080", modeName: "repaired", mcp: true},
 		},
 		{
 			name: "CORS is off unless asked for",
 			env:  nil,
 			args: nil,
-			want: config{addr: ":8080", modeName: "repaired"},
+			want: config{addr: "127.0.0.1:8080", modeName: "repaired"},
 		},
 		{
 			name: "CORS origins come from the environment",
 			env:  map[string]string{"HABITATUS_CORS": "https://a.example, https://b.example"},
 			args: nil,
-			want: config{addr: ":8080", modeName: "repaired",
+			want: config{addr: "127.0.0.1:8080", modeName: "repaired",
 				corsOrigins: []string{"https://a.example", "https://b.example"}},
 		},
 		{
 			name: "a -cors flag beats the environment",
 			env:  map[string]string{"HABITATUS_CORS": "https://a.example"},
 			args: []string{"-cors", "*"},
-			want: config{addr: ":8080", modeName: "repaired", corsOrigins: []string{"*"}},
+			want: config{addr: "127.0.0.1:8080", modeName: "repaired", corsOrigins: []string{"*"}},
 		},
 	}
 
