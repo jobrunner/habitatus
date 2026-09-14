@@ -6,7 +6,7 @@
 # Pinned to a patch level, not a floating minor tag. The 1.24 line is out of
 # security support: govulncheck reports standard-library vulnerabilities
 # against 1.24.13, its last release, that are fixed only from 1.25.13 on.
-FROM golang:1.26.8 AS build
+FROM golang:1.27.1 AS build
 WORKDIR /src
 
 ARG VERSION=dev
