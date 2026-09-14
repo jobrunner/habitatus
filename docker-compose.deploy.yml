@@ -22,7 +22,7 @@ services:
     # tag stays at whatever was pinned when the file was written, and with
     # pull_policy: missing a redeploy after a release would silently keep
     # serving the old image.
-    image: ghcr.io/jobrunner/habitatus:0.1.0 # x-release-please-version
+    image: ghcr.io/jobrunner/habitatus:0.1.1 # x-release-please-version
     pull_policy: missing
 
     restart: unless-stopped
