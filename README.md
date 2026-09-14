@@ -207,11 +207,25 @@ docker compose -f docker-compose.deploy.yml up -d
 docker compose -f docker-compose.deploy.yml logs -f
 ```
 
-Es setzt voraus, dass ein `v*`-Tag existiert — erst der löst
-`docker-release.yml` aus, das nach `ghcr.io/jobrunner/habitatus` veröffentlicht
-(multi-arch, cosign-signiert, mit SPDX-SBOM). Solange keiner gesetzt ist, die
-`image:`-Zeile durch einen `build:`-Block ersetzen; der Kommentar in der Datei
-sagt, wie.
+Ein `v*`-Tag löst `docker-release.yml` aus, das nach
+`ghcr.io/jobrunner/habitatus` veröffentlicht. Am Release `v0.1.0` nachgemessen,
+nicht behauptet:
+
+```
+Index   sha256:d3296548…   linux/amd64 + linux/arm64
+Attestierungen am INDEX-Digest, nicht an den Kandidaten:
+  https://spdx.dev/Document/v2.3   -> d32965484951…
+  https://slsa.dev/provenance/v1   -> d32965484951…
+```
+
+Dass die Attestierungen am finalen Index hängen und nicht an den
+Architektur-Kandidaten, ist der Punkt: `imagetools create` erzeugt einen neuen
+Index mit neuem Digest, und Nachweise folgen keinem Digest, für den sie nicht
+ausgestellt wurden. Prüfen mit:
+
+```sh
+gh attestation verify oci://ghcr.io/jobrunner/habitatus:0.1.0 -R jobrunner/habitatus
+```
 
 Drei Entscheidungen darin, die man kennen sollte:
 
