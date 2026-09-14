@@ -33,8 +33,24 @@ def loads(text):
     return json.loads(text, parse_constant=_reject_nonfinite)
 
 
+def require_ref(ref):
+    """Fail loudly on a ref git cannot resolve. Without this, a typo or a
+    shallow clone makes every `at()` return None, main reports "first
+    introduction" for every ratchet, and the guard exits 0 having compared
+    nothing — the vacuous pass it exists to prevent."""
+    p = subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
+                       capture_output=True, text=True, check=False)
+    if p.returncode != 0:
+        print(f"::error::{ref} is not a commit this clone can resolve — the "
+              f"baseline comparison would silently check nothing", file=sys.stderr)
+        return False
+    return True
+
+
 def at(ref, path):
-    """File content at a git ref, or None when it did not exist there."""
+    """File content at a git ref, or None when the PATH did not exist there.
+    The ref itself is validated once by require_ref; anything else git reports
+    here is a missing path."""
     p = subprocess.run(["git", "show", f"{ref}:{path}"],
                        capture_output=True, text=True, check=False)
     return p.stdout if p.returncode == 0 else None
@@ -48,6 +64,15 @@ def _number(s):
     if v != v or v in (float("inf"), float("-inf")):
         raise ValueError(f"non-finite value {s!r}")
     return v
+
+
+def exemptions(text):
+    """The "!<package>" lines of .coverage-floors. They are the same kind of
+    thing as hotspot.allow — a file lifted out of the gate — and have to be
+    reported for the same reason: without this, adding a new untested package
+    together with its own exemption passes both gates."""
+    return {l.strip()[1:].split()[0] for l in (text or "").splitlines()
+            if l.strip().startswith("!") and len(l.strip()) > 1}
 
 
 def floors(text):
@@ -108,6 +133,12 @@ def check_thresholds(base, head, bad):
             bad.append(f".mutation-thresholds: {k} lowered {v:g} -> {h[k]:g}")
 
 
+def check_exemptions(base, head, bad):
+    for pkg in sorted(exemptions(head) - exemptions(base)):
+        bad.append(f".coverage-floors: {pkg} was exempted with '!' — a package "
+                   f"lifted out of the coverage gate")
+
+
 def check_caps(base, head, section, bad):
     bdef, bbase = caps(base, section)
     hdef, hbase = caps(head, section)
@@ -164,6 +195,8 @@ def main():
         print(__doc__.strip().splitlines()[-3], file=sys.stderr)
         return 2
     ref = sys.argv[1]
+    if not require_ref(ref):
+        return 2
     bad = []
 
     try:
@@ -177,6 +210,7 @@ def main():
         print(f"::notice::.coverage-floors does not exist at {ref} — nothing to "
               f"compare, this is its first introduction")
     check_floors(base_floors, head_floors, bad)
+    check_exemptions(base_floors, head_floors, bad)
 
     base_thr = at(ref, ".mutation-thresholds")
     if base_thr is None:
