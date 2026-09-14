@@ -28,6 +28,7 @@ func TestParseOrigins(t *testing.T) {
 		{in: "*,https://a.example", wantErr: true},
 		{in: "a.example", wantErr: true},             // no scheme
 		{in: "https://", wantErr: true},              // no host
+		{in: "https://:443", wantErr: true},          // a port is not a host
 		{in: "https://a.example/app", wantErr: true}, // an origin has no path
 		{in: "https://a.example?x=1", wantErr: true}, // nor a query
 		{in: "https://a.example?", wantErr: true},    // nor a bare "?"

@@ -27,22 +27,8 @@ func ParseOrigins(s string) ([]string, error) {
 		if o == "" {
 			continue
 		}
-		if o != "*" {
-			// An origin is scheme://host[:port] and nothing else. url.Parse
-			// happily accepts a path, a query, a fragment or userinfo, and
-			// such a value can never equal the Origin a browser sends — it
-			// would sit in the allowlist looking configured while matching
-			// nothing, which is worse than being rejected.
-			// The raw "#" is checked on the string: url.Parse leaves Fragment
-			// empty for a trailing delimiter, so "https://a.example#" would
-			// pass a Fragment check. There is no ForceFragment to mirror
-			// ForceQuery, and an origin never contains "#" at all.
-			u, err := url.Parse(o)
-			if err != nil || u.Scheme == "" || u.Host == "" || u.Path != "" ||
-				u.RawQuery != "" || u.ForceQuery || u.Fragment != "" ||
-				strings.Contains(o, "#") || u.User != nil {
-				return nil, fmt.Errorf("origin %q is not scheme://host[:port]", o)
-			}
+		if o != "*" && !isOrigin(o) {
+			return nil, fmt.Errorf("origin %q is not scheme://host[:port]", o)
 		}
 		out = append(out, o)
 	}
@@ -52,6 +38,26 @@ func ParseOrigins(s string) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// isOrigin reports whether s is exactly scheme://host[:port].
+//
+// An origin carries nothing else — no path, no query, no fragment, no
+// userinfo — and a value that carries one of them can never equal the Origin
+// header a browser sends. It would sit in the allowlist looking configured
+// while matching nothing, which is harder to diagnose than a start-up refusal.
+//
+// Two traps in url.Parse this has to work around: "https://:443" yields a
+// non-empty Host with an empty Hostname, and a trailing "#" leaves Fragment
+// empty, so the raw string is checked for it (there is no ForceFragment to
+// mirror ForceQuery).
+func isOrigin(s string) bool {
+	u, err := url.Parse(s)
+	if err != nil || u.Scheme == "" || u.Host == "" || u.Hostname() == "" {
+		return false
+	}
+	return u.Path == "" && u.RawQuery == "" && !u.ForceQuery &&
+		u.Fragment == "" && !strings.Contains(s, "#") && u.User == nil
 }
 
 // WithCORS answers browser preflights and adds the access-control headers for
