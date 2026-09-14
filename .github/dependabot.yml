@@ -10,6 +10,12 @@ updates:
     commit-message:
       prefix: "chore(deps)"
 
+  # Every action is pinned to a commit SHA with the version in a trailing
+  # comment. A tag is mutable — its owner can repoint it, and the action then
+  # runs with this repository's permissions — which is what CodeQL's
+  # actions/unpinned-tag query flags. Dependabot understands the pinned form
+  # and updates both the SHA and the comment, so the hardening costs nothing
+  # to maintain.
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
