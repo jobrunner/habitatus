@@ -92,7 +92,8 @@ jobs:
     permissions:
       contents: read
       packages: write
-      id-token: write # keyless signing via the OIDC token
+      id-token: write      # keyless signing via the OIDC token
+      attestations: write  # provenance and SBOM on the merged index
     steps:
       - uses: sigstore/cosign-installer@v3
 
@@ -134,15 +135,52 @@ jobs:
               "${src}-amd64" "${src}-arm64"
           done <<< "$TAGS"
 
-      - name: Sign the manifest
+      # Every release tag points at the one index imagetools just created, so
+      # its digest is taken once and everything below attests THAT.
+      #
+      # This is the digest that matters and the reason the next three steps
+      # exist: the per-arch builds carry provenance and SBOM attestations, but
+      # `imagetools create` produces a NEW index with a NEW digest, and
+      # attestations do not follow a digest they were not made for. Attesting
+      # only the candidates would leave the tags people actually pull carrying
+      # none of it, while the summary claimed otherwise.
+      - name: Resolve the released digest
+        id: digest
         env:
           TAGS: ${{ steps.meta.outputs.tags }}
         run: |
-          while read -r tag; do
-            [ -n "$tag" ] || continue
-            digest=$(docker buildx imagetools inspect "$tag" --format '{{json .Manifest.Digest}}' | tr -d '"')
-            cosign sign --yes "${REGISTRY}/${IMAGE_NAME}@${digest}"
-          done <<< "$TAGS"
+          first=$(head -n1 <<< "$TAGS")
+          digest=$(docker buildx imagetools inspect "$first" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          [ -n "$digest" ] || { echo "::error::could not resolve the index digest"; exit 1; }
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Sign the manifest
+        env:
+          DIGEST: ${{ steps.digest.outputs.digest }}
+        run: cosign sign --yes "${REGISTRY}/${IMAGE_NAME}@${DIGEST}"
+
+      - name: Attest provenance for the released index
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.digest.outputs.digest }}
+          push-to-registry: true
+
+      - name: Generate an SBOM of the released index
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.digest }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+          upload-artifact: false
+
+      - name: Attest the SBOM for the released index
+        uses: actions/attest-sbom@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.digest.outputs.digest }}
+          sbom-path: sbom.spdx.json
+          push-to-registry: true
 
       # Both values go through the environment. VERSION is repository content
       # read by `head -n1 VERSION`, so interpolating it into the script means
@@ -154,6 +192,7 @@ jobs:
         env:
           TAGS: ${{ steps.meta.outputs.tags }}
           VERSION: ${{ needs.version.outputs.version }}
+          DIGEST: ${{ steps.digest.outputs.digest }}
         run: |
           {
             echo "### Published"
@@ -162,13 +201,17 @@ jobs:
             echo "$TAGS"
             echo '```'
             echo
-            echo "Signed keylessly with cosign; SLSA provenance and an SPDX SBOM are attached as attestations."
+            echo "Digest: ${DIGEST}"
+            echo
+            echo "Signed keylessly with cosign. SLSA provenance and an SPDX SBOM are"
+            echo "attested against THIS digest — the merged multi-arch index — not"
+            echo "against the per-architecture candidates, whose digests differ."
             echo
             echo "Verify:"
             echo '```'
             echo "cosign verify ${REGISTRY}/${IMAGE_NAME}:${VERSION} \\"
             echo "  --certificate-identity-regexp 'https://github.com/${IMAGE_NAME}/' \\"
             echo "  --certificate-oidc-issuer https://token.actions.githubusercontent.com"
-            echo "cosign download sbom ${REGISTRY}/${IMAGE_NAME}:${VERSION}"
+            echo "gh attestation verify oci://${REGISTRY}/${IMAGE_NAME}:${VERSION} -R ${IMAGE_NAME}"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
