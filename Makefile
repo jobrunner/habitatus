@@ -140,7 +140,8 @@ fuzz:
 # caught a bug in it. The thresholds are a ratchet, raised as tests improve.
 mutation:
 	gremlins unleash ./internal/esy --timeout-coefficient=20 \
-	  --threshold-efficacy=78 --threshold-mcover=88
+	  --threshold-efficacy=$$(awk '$$1=="efficacy"{print $$2}' .mutation-thresholds) \
+	  --threshold-mcover=$$(awk '$$1=="mcover"{print $$2}' .mutation-thresholds)
 
 # Every dependency of the shipped binary must carry a permissive licence. The
 # core has no third-party dependencies at all, so this gate mainly guards

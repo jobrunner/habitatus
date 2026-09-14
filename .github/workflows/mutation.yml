@@ -45,6 +45,11 @@ jobs:
 
       - name: Mutate the evaluator
         run: |
+          # Thresholds come from .mutation-thresholds, which
+          # scripts/ratchet-baseline.py watches. Inlining them here would put
+          # them out of that guard's reach.
+          eff=$(awk '$1=="efficacy"{print $2}' .mutation-thresholds)
+          mc=$(awk '$1=="mcover"{print $2}' .mutation-thresholds)
           # The path is a directory, not a pattern: gremlins appends /...
           # itself, so ./internal/esy/... becomes ./internal/esy/.../... and
           # matches nothing — which it reports as a coverage failure.
@@ -56,7 +61,7 @@ jobs:
           # noise (efficacy "100%" from three killed mutants).
           gremlins unleash ./internal/esy \
             --timeout-coefficient=20 \
-            --threshold-efficacy=78 --threshold-mcover=88 \
+            --threshold-efficacy="$eff" --threshold-mcover="$mc" \
             2>&1 | tee mutation.log
 
       - name: Upload the mutation report

@@ -71,6 +71,32 @@ def caps(cfg, section):
     return s.get("default_cap"), base
 
 
+def thresholds(text):
+    out = {}
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        if len(parts) >= 2:
+            try:
+                out[parts[0]] = float(parts[1])
+            except ValueError:
+                continue
+    return out
+
+
+def check_thresholds(base, head, bad):
+    """Mutation thresholds may only rise. They live in a file rather than in the
+    workflow precisely so that this can see them."""
+    b, h = thresholds(base), thresholds(head)
+    for k, v in sorted(b.items()):
+        if k not in h:
+            bad.append(f".mutation-thresholds: {k} ({v:g}) was removed")
+        elif h[k] < v:
+            bad.append(f".mutation-thresholds: {k} lowered {v:g} -> {h[k]:g}")
+
+
 def check_caps(base, head, section, bad):
     bdef, bbase = caps(base, section)
     hdef, hbase = caps(head, section)
@@ -140,6 +166,17 @@ def main():
         print(f"::notice::.coverage-floors does not exist at {ref} — nothing to "
               f"compare, this is its first introduction")
     check_floors(base_floors, head_floors, bad)
+
+    base_thr = at(ref, ".mutation-thresholds")
+    if base_thr is None:
+        print(f"::notice::.mutation-thresholds does not exist at {ref} — nothing "
+              f"to compare, this is its first introduction")
+    try:
+        with open(".mutation-thresholds", encoding="utf-8") as fh:
+            check_thresholds(base_thr, fh.read(), bad)
+    except OSError as e:
+        print(f"::error::cannot read .mutation-thresholds ({e})", file=sys.stderr)
+        return 2
 
     base_cfg_text = at(ref, ".codecharta-ratchet.json")
     try:
