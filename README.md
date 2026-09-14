@@ -86,7 +86,8 @@ der CI ohnehin; lokal gezielt vor einer Änderung, die sie betrifft.
 | Architecture | `go mod tidy -diff`, Abhängigkeitsfreiheit, Regeldatei-Prüfsumme, Ratchet-Basisvergleich | eine unbemerkt eingeführte Abhängigkeit; eine stille Änderung der vendorierten Regeldatei, die jede Verifikationsaussage entwertet; ein im selben PR abgesenkter Floor oder angehobener Komplexitäts-Cap |
 | Build | `go build`, `gofmt -l` | nicht übersetzbarer oder unformatierter Stand |
 | Docker Lint | hadolint | Fehler im Dockerfile |
-| Actions Lint | actionlint | Fehler und Script-Injection in den Workflows |
+| Actions Lint | actionlint (+ shellcheck) | Fehler und Script-Injection in den Workflows |
+| CodeQL / Actions | `actions/unpinned-tag` | eine Action, die per beweglichem Tag statt per Commit-SHA eingebunden ist |
 | Docker Build | Buildx + Smoke-Test | ein Image, das zwar baut, aber unter `--read-only --cap-drop=ALL` nicht antwortet |
 | Docker Security Scan | Trivy | behebbare CRITICAL/HIGH im Image |
 | Golden Master | `make golden` | jede Abweichung von der R-Implementierung — beide Modi, 11.337 Aufnahmen, 642.000 Ausdruckswerte |
