@@ -134,6 +134,12 @@ def check_thresholds(base, head, bad):
 
 
 def check_exemptions(base, head, bad):
+    # Nothing to weaken when the file is new: every exemption in it is part of
+    # its introduction, not a package lifted out of a gate that existed. The
+    # other checks are no-ops in that case for the same reason; this one
+    # compares head against base and needed saying explicitly.
+    if base is None:
+        return
     for pkg in sorted(exemptions(head) - exemptions(base)):
         bad.append(f".coverage-floors: {pkg} was exempted with '!' — a package "
                    f"lifted out of the coverage gate")
