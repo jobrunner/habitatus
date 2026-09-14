@@ -109,11 +109,17 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # The semver patterns only fire on a tag ref. A workflow_dispatch run
+          # starts from a branch, so without the raw tag below it would publish
+          # a sha tag and nothing else — no 0.1.0, and docker-compose.deploy.yml
+          # pins exactly that. The manual path would look like it released and
+          # produce nothing deployable.
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=sha
+            type=raw,value=${{ needs.version.outputs.version }},enable=${{ github.event_name == 'workflow_dispatch' }}
             type=raw,value=latest,enable={{is_default_branch}}
 
       # The tag list arrives through the environment, not by interpolation into

@@ -186,7 +186,12 @@ COMMITLINT_FROM ?= origin/main
 # through npx: commitlint resolves `extends` from the config file's own
 # directory, and an npx temp install is not on that path.
 commitlint:
-	@command -v npm >/dev/null 2>&1 || { echo "commitlint: npm not found, skipping"; exit 0; }
+	@command -v npm >/dev/null 2>&1 || { \
+	  echo "commitlint: npm not found. This gate is required in CI, so skipping"; \
+	  echo "            it here would let \`make quality\` report green having not"; \
+	  echo "            run it — install node, or run this target's check with"; \
+	  echo "            the wagoid/commitlint-github-action image."; \
+	  exit 1; }
 	@[ -x node_modules/.bin/commitlint ] || npm install --no-save --no-audit --no-fund --silent \
 	  @commitlint/cli@19 @commitlint/config-conventional@19
 	@node_modules/.bin/commitlint --config .commitlintrc.yml --from $(COMMITLINT_FROM) --to HEAD \
