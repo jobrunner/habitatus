@@ -9,6 +9,13 @@
 # verification never ran under is a gap in exactly the claim this project
 # makes. Dependabot bumps the line below; the workflows have to follow in the
 # same change.
+#
+# The `go` directive in go.mod is deliberately NOT raised with it. It is a
+# minimum language version, not the compiler in use, and raising it past what
+# golangci-lint was built with makes the linter refuse to start at all —
+# "the Go language version used to build golangci-lint is lower than the
+# targeted Go version". 1.26.8 is the floor because it is the oldest release
+# govulncheck reports clean; the toolchain above it is free to move.
 FROM golang:1.27.1 AS build
 WORKDIR /src
 
