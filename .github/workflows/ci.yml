@@ -327,11 +327,27 @@ jobs:
       # complexity cap or grandfather a file into hotspot.allow — and every
       # gate would still report green, because each faithfully enforces
       # whatever the file now says.
+      # The checker is taken FROM THE BASE, not from the PR. Run from the
+      # working tree it would guard a configuration that the same PR can
+      # weaken while editing the guard to say yes — a check that cannot
+      # protect what it claims to. The base copy has no such hold on it.
+      #
+      # A PR that legitimately improves the checker therefore runs the old one
+      # here; the new one takes effect once it is merged. That is the correct
+      # order for a thing whose job is to be trusted.
       - name: Ratchet configuration is no weaker than the base
         if: github.event_name == 'pull_request'
         run: |
           git fetch --no-tags --depth=1 origin "${BASE}"
-          python3 scripts/ratchet-baseline.py FETCH_HEAD
+          if git cat-file -e "FETCH_HEAD:scripts/ratchet-baseline.py" 2>/dev/null; then
+            git show "FETCH_HEAD:scripts/ratchet-baseline.py" > "${RUNNER_TEMP}/ratchet-baseline.py"
+            echo "running the checker as of the base branch"
+            python3 "${RUNNER_TEMP}/ratchet-baseline.py" FETCH_HEAD
+          else
+            echo "::notice::the base has no checker yet — running the one from this PR," \
+                 "which is the only copy that exists"
+            python3 scripts/ratchet-baseline.py FETCH_HEAD
+          fi
         env:
           BASE: ${{ github.base_ref }}
 
@@ -350,12 +366,22 @@ jobs:
           fi
           echo "go.mod declares no dependencies, as intended"
 
-      # The vendored rule file is what both golden masters were generated
-      # against; their staleness guard compares this digest. A silent edit
-      # would invalidate every verification claim the project makes.
+      # Two separate questions, and only the first was being asked.
+      #
+      # (1) Is the rule file consistent with the checksum the fixtures record?
+      #     That catches an edit to one without the other — but a PR can change
+      #     both, and then this says yes about a rule pack nobody verified.
+      #
+      # (2) Has the rule file changed relative to the base at all? Replacing it
+      #     is a legitimate act — a new ESy release — but it invalidates every
+      #     verification claim until the fixtures are regenerated against it,
+      #     so it may not pass as an ordinary diff. It has to be its own,
+      #     visible event.
       - name: Vendored rule file is unmodified
+        if: github.event_name == 'pull_request'
         env:
           ESY_FILE: data/esy/EUNIS-ESy-2025-10-03.txt
+          BASE: ${{ github.base_ref }}
         run: |
           want=$(cat testdata/golden/rulepack.sha256)
           got=$(sha256sum "$ESY_FILE" | cut -d' ' -f1)
@@ -363,7 +389,23 @@ jobs:
             echo "::error file=$ESY_FILE::rule file digest $got does not match the golden master's $want"
             exit 1
           fi
-          echo "rule file digest matches the golden masters"
+          git fetch --no-tags --depth=1 origin "${BASE}"
+          if git cat-file -e "FETCH_HEAD:$ESY_FILE" 2>/dev/null; then
+            base_digest=$(git show "FETCH_HEAD:$ESY_FILE" | sha256sum | cut -d' ' -f1)
+            if [ "$base_digest" != "$got" ]; then
+              echo "::error file=$ESY_FILE::the vendored rule file differs from the base"
+              echo "  base $base_digest"
+              echo "  head $got"
+              echo "Replacing the rule file is a deliberate act: it invalidates every"
+              echo "verification claim until both golden masters are regenerated against"
+              echo "it. Do it in a PR of its own, say so in the description, and note"
+              echo "that this check is expected to fail there."
+              exit 1
+            fi
+          else
+            echo "::notice::the base does not carry the rule file — this is its introduction"
+          fi
+          echo "rule file digest matches the golden masters and the base"
 
   # ===========================================================================
   # Build
