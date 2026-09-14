@@ -81,8 +81,11 @@ clean-fixtures:
 	  $(GOLDEN_REPAIRED)/rulepack.sha256 $(GOLDEN_REPAIRED)/upstream.commit
 
 # release-please owns the VERSION file; the git fallback keeps a checkout
-# without one buildable.
-VERSION ?= $(shell head -n1 VERSION 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo dev)
+# without one buildable. The awk strips the `# x-release-please-version`
+# marker, which has to be IN the file for release-please's generic updater to
+# find it — without the marker it silently skips the file, and VERSION then
+# says one thing while the release says another.
+VERSION ?= $(shell awk 'NR==1{print $$1}' VERSION 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 
 .PHONY: docker-build docker-run
