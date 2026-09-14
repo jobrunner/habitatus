@@ -212,20 +212,36 @@ Ein `v*`-Tag löst `docker-release.yml` aus, das nach
 nicht behauptet:
 
 ```
-Index   sha256:d3296548…   linux/amd64 + linux/arm64
-Attestierungen am INDEX-Digest, nicht an den Kandidaten:
-  https://spdx.dev/Document/v2.3   -> d32965484951…
-  https://slsa.dev/provenance/v1   -> d32965484951…
+Index  sha256:d3296548495135a5f3eadedd6b5ae2b394f62a31e278fa141b982568dc643bdf
+       linux/amd64  sha256:7d3534d691fba6280242e850ec9b192901c70667e23b3f4678ced27e22a498ae
+       linux/arm64  sha256:3fa06fc2e819fef109b249baa6394a08e1ec95da4632845106398655866ecc04
 ```
 
-Dass die Attestierungen am finalen Index hängen und nicht an den
-Architektur-Kandidaten, ist der Punkt: `imagetools create` erzeugt einen neuen
-Index mit neuem Digest, und Nachweise folgen keinem Digest, für den sie nicht
-ausgestellt wurden. Prüfen mit:
+Beide Attestierungen — SPDX-SBOM und SLSA-Provenance — nennen als Subjekt den
+**Index-Digest**, nicht die Architektur-Kandidaten. Das ist der Punkt, an dem
+es schiefgeht, wenn man es nicht beachtet: `imagetools create` erzeugt einen
+neuen Index mit neuem Digest, und Nachweise folgen keinem Digest, für den sie
+nicht ausgestellt wurden.
+
+Prüfen — über den **unveränderlichen Digest**, nicht über den Tag, der
+umgehängt werden kann:
 
 ```sh
-gh attestation verify oci://ghcr.io/jobrunner/habitatus:0.1.0 -R jobrunner/habitatus
+gh attestation verify \
+  oci://ghcr.io/jobrunner/habitatus@sha256:d3296548495135a5f3eadedd6b5ae2b394f62a31e278fa141b982568dc643bdf \
+  -R jobrunner/habitatus --format json
 ```
+
+Die Provenance bindet das Image an den Bauvorgang: Workflow-Datei und Tag
+(`docker-release.yml@refs/tags/v0.1.0`), Quell-Commit
+`a80d656184d36a987ca3476e7fda96ee5746d0e4` — derselbe, den das Binary als
+`commit` meldet — und `runnerEnvironment: github-hosted`, gegengezeichnet im
+Rekor-Transparenzlog.
+
+Ein Hinweis zur Bedienung: ohne Terminal gibt `gh attestation verify` bei
+Erfolg nichts aus und endet mit 0. Dass das keine leere Zustimmung ist, zeigt
+die Gegenprobe — mit `-R jobrunner/ortus` endet derselbe Aufruf mit 1 und
+`failed to fetch attestations`.
 
 Drei Entscheidungen darin, die man kennen sollte:
 
