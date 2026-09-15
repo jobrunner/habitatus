@@ -52,14 +52,24 @@ curl -sS -X POST http://127.0.0.1:8080/api/v1/classify \
 }'
 ```
 
+Die Antwort, hier ohne den `resolution`-Block abgedruckt (er enthält einen
+Eintrag je Art und ist unten für sich gezeigt):
+
 ```json
-{ "result": "R1P",
-  "matches": [ {"code":"R1P","priority":2}, {"code":"R","priority":1} ],
-  "resolution": [ … ],
-  "versions": { "backbone": "euro+med", "mode": "repaired",
-                "rulepack": "EUNIS-ESy-2025-10-03.txt",
-                "rulepack_sha256": "724ad861…" },
-  "truncated_at_10": false }
+{
+  "result": "R1P",
+  "matches": [
+    { "code": "R1P", "priority": 2 },
+    { "code": "R",   "priority": 1 }
+  ],
+  "versions": {
+    "backbone": "euro+med",
+    "mode": "repaired",
+    "rulepack": "EUNIS-ESy-2025-10-03.txt",
+    "rulepack_sha256": "724ad8611e0ddb9e8a39e54aae840119a2219202f74a1e8b208d0a65d35d235f"
+  },
+  "truncated_at_10": false
+}
 ```
 
 Alle sieben Kopffelder sind **Pflicht** — `Country`, `Coast_EEA`,
@@ -75,20 +85,40 @@ schreibt das Feld mit.
 
 ### Die beiden Fälle, die man beim Integrieren falsch versteht
 
-```sh
-# kein Treffer -> "?" und KEIN Fehler. matches fehlt dann ganz.
-… -d '{"backbone":"euro+med","records":[{"name":"Fagus sylvatica","cover":1}], …}'
-# {"result":"?"}
+Eine Aufnahme, auf die keine Regel passt — die vollständige Antwort:
 
-# unbekannter Name -> ebenfalls "?", aber die Auflösung sagt es:
-# "resolution":[{"input":"Quatschus erfundus", …, "resolved":false}]
+```json
+{
+  "result": "?",
+  "matches": null,
+  "resolution": [
+    { "input": "Fagus sylvatica", "after_backbone": "Fagus sylvatica",
+      "final": "Fagus sylvatica", "resolved": true }
+  ],
+  "versions": { "backbone": "euro+med", "mode": "repaired",
+                "rulepack": "EUNIS-ESy-2025-10-03.txt",
+                "rulepack_sha256": "724ad8611e0ddb9e8a39e54aae840119a2219202f74a1e8b208d0a65d35d235f" },
+  "truncated_at_10": false
+}
 ```
 
-`"?"` heißt **„keine Regel trifft"**, nicht „Fehler" — eine korrekte Antwort
-auf eine Aufnahme, für die ESy kein Habitat kennt. Ob ein Name nicht aufgelöst
-werden konnte, steht ausschließlich im `resolution`-Block. Wer wissen will, ob
-seine Nomenklatur passt, prüft dort auf `resolved: false`; das Ergebnisfeld
-allein verrät es nicht.
+**`"?"` heißt „keine Regel trifft", nicht „Fehler"** — eine korrekte Antwort
+auf eine Aufnahme, für die ESy kein Habitat kennt. Beachte `"matches": null`:
+das Feld verschwindet nicht, es ist `null`. Ein Client, der auf Anwesenheit
+statt auf den Wert prüft, läuft hier in eine Null-Referenz.
+
+**Ein unbekannter Name ergibt ebenfalls `"?"`** — und das ist der gefährlichere
+Fall, weil er wie das obige aussieht. Nur der `resolution`-Block sagt es:
+
+```json
+"resolution": [
+  { "input": "Quatschus erfundus", "after_backbone": "Quatschus erfundus",
+    "final": "Quatschus erfundus", "resolved": false }
+]
+```
+
+Wer wissen will, ob die eigene Nomenklatur zum Regelwerk passt, prüft dort auf
+`resolved: false`. Das Ergebnisfeld allein verrät es nicht.
 
 ### Zurückgewiesene Anfragen
 
