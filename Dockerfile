@@ -53,6 +53,13 @@ COPY data/esy/ATTRIBUTION.md /data/esy/ATTRIBUTION.md
 # asking :8080 and reported the container unhealthy forever. The environment
 # variable is visible to both processes; the argument is not.
 #
+# The same applies to -mcp: that mode serves JSON-RPC over stdio and starts no
+# HTTP server, so there is nothing to probe. Select it with HABITATUS_MCP and
+# the probe recognises it and succeeds; give it as an ARGUMENT and the probe
+# cannot see it, so disable the health check with `--no-healthcheck` (or
+# `healthcheck: disable: true` in compose) — otherwise a working stdio process
+# is reported unhealthy forever.
+#
 # start-period covers the one slow part of start-up: parsing the 8 MB rule file
 # takes about a second on a warm machine, and a cold or throttled container
 # needs more. Failures during that window do not count against retries.

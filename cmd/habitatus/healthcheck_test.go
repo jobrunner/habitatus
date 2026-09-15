@@ -45,7 +45,7 @@ func TestHealthcheckStatus(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			err := healthcheck(strings.TrimPrefix(srv.URL, "http://"))
+			err := healthcheck(strings.TrimPrefix(srv.URL, "http://"), false)
 			if tc.wantErr && err == nil {
 				t.Fatalf("status %d accepted, want an error", tc.status)
 			}
@@ -68,7 +68,16 @@ func TestHealthcheckStatus(t *testing.T) {
 // still-starting container looks like.
 func TestHealthcheckNoListener(t *testing.T) {
 	// Port 1 is privileged and unused; dialling it fails fast.
-	if err := healthcheck("127.0.0.1:1"); err == nil {
+	if err := healthcheck("127.0.0.1:1", false); err == nil {
 		t.Fatal("healthcheck succeeded with nothing listening")
+	}
+}
+
+// In MCP mode there is no HTTP server to probe. Reporting the container
+// unhealthy there would be wrong about a process that is working, so the probe
+// says so and succeeds — and must not touch the network at all.
+func TestHealthcheckMCPModeDoesNotProbe(t *testing.T) {
+	if err := healthcheck("127.0.0.1:1", true); err != nil {
+		t.Fatalf("MCP mode should not probe, got: %v", err)
 	}
 }

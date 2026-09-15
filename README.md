@@ -189,6 +189,13 @@ habitatus -addr :9090` würde also auf 9090 lauschen, während die Probe
 weiterhin `:8080` fragt — und der Container gälte dauerhaft als ungesund. Die
 Umgebungsvariable sehen beide Prozesse, das Argument nur einer.
 
+Dasselbe gilt für **`-mcp`**: dieser Modus spricht JSON-RPC über stdio und
+startet keinen HTTP-Server, es gibt also nichts zu proben. Mit `HABITATUS_MCP`
+gesetzt erkennt die Probe das und endet erfolgreich. Als **Argument** übergeben
+kann sie es nicht sehen — dann den Healthcheck abschalten
+(`--no-healthcheck`, in Compose `healthcheck: disable: true`), sonst gilt ein
+einwandfrei arbeitender stdio-Prozess dauerhaft als ungesund.
+
 `start_period` deckt genau diesen Start ab; Fehlschläge in diesem Fenster
 zählen nicht gegen `retries`. Ist `-addr` auf `:8080` oder `0.0.0.0:8080`
 gesetzt, fragt die Probe `127.0.0.1` — für einen Lauscher heißt das „alle

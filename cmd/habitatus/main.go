@@ -51,7 +51,7 @@ func main() {
 	// rule pack to ask it whether it is ready would make every health check
 	// as expensive as a start-up.
 	if cfg.healthcheck {
-		if err := healthcheck(cfg.addr); err != nil {
+		if err := healthcheck(cfg.addr, cfg.mcp); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

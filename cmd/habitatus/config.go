@@ -59,7 +59,11 @@ func resolveConfig(env func(string) string, args []string) (config, error) {
 	rulesPath := fs.String("rules", envOrDefault("HABITATUS_RULES", ""), "path to the ESy rule file")
 	backbonesPath := fs.String("backbones", envOrDefault("HABITATUS_BACKBONES", ""),
 		"path to the directory of nomenclature translation tables (optional)")
-	mcp := fs.Bool("mcp", false, "serve MCP over stdio instead of HTTP")
+	// HABITATUS_MCP exists so the health probe can see the mode. The probe runs
+	// as a separate process and never receives the server's arguments, so a
+	// -mcp given as a flag is invisible to it — see healthcheck.go.
+	mcp := fs.Bool("mcp", envOrDefault("HABITATUS_MCP", "") != "",
+		"serve MCP over stdio instead of HTTP (or HABITATUS_MCP)")
 	health := fs.Bool("healthcheck", false,
 		"probe GET /health/ready on -addr and exit 0 or 1, instead of serving; "+
 			"for a container HEALTHCHECK, where the distroless image has no curl")

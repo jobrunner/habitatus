@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -44,7 +45,20 @@ func probeAddr(addr string) string {
 //
 // It deliberately does NOT load the rule file. This is a liveness-and-
 // readiness probe for an already-running server, not a second start-up.
-func healthcheck(addr string) error {
+func healthcheck(addr string, mcp bool) error {
+	// MCP serves JSON-RPC over stdio and starts no HTTP server, so there is
+	// nothing to probe. Probing anyway would report a perfectly healthy stdio
+	// process as unhealthy forever, which is worse than saying nothing.
+	//
+	// This only works when the mode came from HABITATUS_MCP: the probe is a
+	// separate process and never sees a -mcp ARGUMENT. With the flag, disable
+	// the health check itself — `--no-healthcheck`, or `disable: true` in
+	// compose.
+	if mcp {
+		fmt.Fprintln(os.Stderr, "healthcheck: MCP mode serves stdio; nothing to probe")
+		return nil
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), healthcheckTimeout)
 	defer cancel()
 
