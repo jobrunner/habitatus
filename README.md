@@ -137,13 +137,19 @@ die es prüft — ohne Fehler und mit plausibel aussehendem Ergebnis.
 ```sh
 curl -fsS http://127.0.0.1:8080/metrics
 # {"total":0,"question":0,"plus":0,"question_share":0,"plus_share":0,
-#  "unreachable_rules":[],"never_fired_rules":["MA","MA211", … 312 Einträge]}
+#  "unreachable_rules":[],"never_fired_rules":["MA","MA211", … 301 Labels]}
 ```
 
 `question_share` ist der Anteil der Aufnahmen ohne Zuordnung — die Zahl, an der
 man sieht, ob die eigenen Daten zum Regelwerk passen. `unreachable_rules` ist
 in `repaired` leer und listet in `faithful` die 100 Regeln, die dort nie feuern
 können.
+
+`never_fired_rules` enthält **eindeutige Labels, nicht Regeldefinitionen**: bei
+frischem Start 301 Einträge, obwohl die Regeldatei 312 Definitionen hat. Der
+Unterschied ist kein Fehler — das Regelwerk vergibt Labels mehrfach, `T3M`
+etwa an zwölf Regeln, und die erscheinen hier einmal. Wer die Liste gegen eine
+erwartete Länge prüft, sollte von 301 ausgehen und nicht von 312.
 
 ### Browser-Zugriff prüfen
 
