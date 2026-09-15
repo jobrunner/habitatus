@@ -517,9 +517,29 @@ jobs:
 
       - name: Smoke test the hardened container
         run: |
-          docker run -d --name habitatus-ci -p 8080:8080 \
+          docker run -d --name habitatus-ci -p 127.0.0.1:8080:8080 \
             --read-only --cap-drop=ALL --security-opt=no-new-privileges \
             habitatus:ci
+
+          # The image declares a HEALTHCHECK that runs `/habitatus
+          # -healthcheck` inside the container — the only way to probe a
+          # distroless image, which has no shell and no curl. Assert that
+          # Docker actually reaches "healthy": a HEALTHCHECK whose command is
+          # wrong reports "unhealthy" forever, and nothing else in this job
+          # would notice.
+          for i in $(seq 1 60); do
+            health=$(docker inspect --format '{{.State.Health.Status}}' habitatus-ci)
+            [ "$health" = "healthy" ] && break
+            if [ "$health" = "unhealthy" ] || [ "$i" = 60 ]; then
+              echo "::error::container health is '$health' after ${i}0s"
+              docker inspect --format '{{json .State.Health}}' habitatus-ci
+              docker logs habitatus-ci
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "container reports healthy"
+
           for i in $(seq 1 30); do
             if curl -fsS http://localhost:8080/health/ready >/dev/null 2>&1; then break; fi
             if [ "$i" = 30 ]; then

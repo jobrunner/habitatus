@@ -50,6 +50,7 @@ type config struct {
 	modeName      string
 	corsOrigins   []string
 	mcp           bool
+	healthcheck   bool
 }
 
 // resolveConfig applies -addr/-rules/-backbones/-mode/-mcp with the
@@ -81,6 +82,9 @@ func resolveConfig(env func(string) string, args []string) (config, error) {
 	backbonesPath := fs.String("backbones", envOrDefault("HABITATUS_BACKBONES", ""),
 		"path to the directory of nomenclature translation tables (optional)")
 	mcp := fs.Bool("mcp", false, "serve MCP over stdio instead of HTTP")
+	health := fs.Bool("healthcheck", false,
+		"probe GET /health/ready on -addr and exit 0 or 1, instead of serving; "+
+			"for a container HEALTHCHECK, where the distroless image has no curl")
 	cors := fs.String("cors", envOrDefault("HABITATUS_CORS", ""),
 		"comma-separated origins allowed to call the API from a browser "+
 			"(scheme://host[:port]), or * for any; empty keeps CORS off")
@@ -106,6 +110,7 @@ func resolveConfig(env func(string) string, args []string) (config, error) {
 		modeName:      *modeName,
 		corsOrigins:   origins,
 		mcp:           *mcp,
+		healthcheck:   *health,
 	}, nil
 }
 
@@ -119,6 +124,18 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 		}
 		os.Exit(2)
+	}
+
+	// Before anything else, and before the rule file is even looked at: the
+	// probe talks to a server that is already running, and loading an 8 MB
+	// rule pack to ask it whether it is ready would make every health check
+	// as expensive as a start-up.
+	if cfg.healthcheck {
+		if err := healthcheck(cfg.addr); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
 	}
 
 	// Logging always goes to stderr, never stdout. In -mcp mode stdout is

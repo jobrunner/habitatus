@@ -41,6 +41,17 @@ COPY data/esy/ATTRIBUTION.md /data/esy/ATTRIBUTION.md
 #   COPY data/esy/backbones /data/esy/backbones
 # -backbones already accepts a directory path; nothing else needs to change.
 
+# The binary probes itself: the image has no shell and no curl, and Docker can
+# only run a health check from inside the container. `/habitatus -healthcheck`
+# asks GET /health/ready on the configured -addr and exits 0 or 1. Exec form,
+# not shell form — there is no shell to parse it.
+#
+# start-period covers the one slow part of start-up: parsing the 8 MB rule file
+# takes about a second on a warm machine, and a cold or throttled container
+# needs more. Failures during that window do not count against retries.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD ["/habitatus", "-healthcheck"]
+
 # habitatus does not write anywhere at runtime — the rule file and backbone
 # tables are read once at startup and everything after that is in-memory —
 # so the image runs cleanly under --read-only with no tmpfs mount needed.

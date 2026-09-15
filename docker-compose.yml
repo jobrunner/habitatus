@@ -13,6 +13,13 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "/habitatus", "-healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
     # No writable volume: habitatus reads the rule file (and, optionally,
     # the backbone tables) once at startup and serves everything else from
     # memory, so --read-only needs no tmpfs mount.
