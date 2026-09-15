@@ -137,7 +137,7 @@ die es prüft — ohne Fehler und mit plausibel aussehendem Ergebnis.
 ```sh
 curl -fsS http://127.0.0.1:8080/metrics
 # {"total":0,"question":0,"plus":0,"question_share":0,"plus_share":0,
-#  "unreachable_rules":[],"never_fired_rules":[…]}
+#  "unreachable_rules":[],"never_fired_rules":["MA","MA211", … 312 Einträge]}
 ```
 
 `question_share` ist der Anteil der Aufnahmen ohne Zuordnung — die Zahl, an der
@@ -148,7 +148,10 @@ können.
 ### Browser-Zugriff prüfen
 
 ```sh
-docker run … -e HABITATUS_CORS='https://app.example' ghcr.io/jobrunner/habitatus:0.2.0
+docker run -d --name habitatus -p 127.0.0.1:8080:8080 \
+  --read-only --cap-drop=ALL --security-opt=no-new-privileges \
+  -e HABITATUS_CORS='https://app.example' \
+  ghcr.io/jobrunner/habitatus:0.2.0
 
 curl -sS -i -X OPTIONS http://127.0.0.1:8080/api/v1/classify \
   -H 'Origin: https://app.example' \
