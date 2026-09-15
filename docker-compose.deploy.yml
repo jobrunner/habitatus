@@ -111,6 +111,16 @@ services:
     # container. `restart: unless-stopped` reacts to the process exiting. The
     # health state is what `docker ps` reports, what `depends_on:
     # condition: service_healthy` waits for, and what a monitor can read.
+    # Needs an image that HAS -healthcheck. Older images do not know the flag,
+    # exit 2 on it, and are then reported unhealthy forever — a probe failing
+    # on a service that is answering perfectly well. The pinned tag above and
+    # this block therefore move together; release-please advances the tag, and
+    # if you deliberately pin an older image, delete this block with it.
+    #
+    # Override the listen address with HABITATUS_ADDR, never with a `-addr`
+    # argument: Docker runs the health command as a separate process without
+    # the container's own arguments, so the probe would keep asking the default
+    # port and report unhealthy forever.
     healthcheck:
       test: ["CMD", "/habitatus", "-healthcheck"]
       interval: 30s

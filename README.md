@@ -182,6 +182,13 @@ es gibt keine Shell, die sie zerlegen könnte. Die Regeldatei wird dabei
 Regelwerk bei jeder Prüfung zu parsen würde jeden Healthcheck so teuer machen
 wie einen Start.
 
+Wer die Lauschadresse überschreibt, muss dafür **`HABITATUS_ADDR` nehmen, nicht
+ein `-addr`-Argument**: Docker führt das Health-Kommando als eigenen Prozess
+aus und reicht ihm die Argumente des Containers nicht weiter. `docker run
+habitatus -addr :9090` würde also auf 9090 lauschen, während die Probe
+weiterhin `:8080` fragt — und der Container gälte dauerhaft als ungesund. Die
+Umgebungsvariable sehen beide Prozesse, das Argument nur einer.
+
 `start_period` deckt genau diesen Start ab; Fehlschläge in diesem Fenster
 zählen nicht gegen `retries`. Ist `-addr` auf `:8080` oder `0.0.0.0:8080`
 gesetzt, fragt die Probe `127.0.0.1` — für einen Lauscher heißt das „alle

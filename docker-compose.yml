@@ -13,6 +13,10 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    # Override the listen address with HABITATUS_ADDR, never with a `-addr`
+    # argument: Docker runs the health command as a separate process without
+    # the container's own arguments, so the probe would keep asking the default
+    # port and report unhealthy forever.
     healthcheck:
       test: ["CMD", "/habitatus", "-healthcheck"]
       interval: 30s

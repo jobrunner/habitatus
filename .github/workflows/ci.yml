@@ -528,8 +528,18 @@ jobs:
           # wrong reports "unhealthy" forever, and nothing else in this job
           # would notice.
           for i in $(seq 1 60); do
+            state=$(docker inspect --format '{{.State.Status}}' habitatus-ci)
             health=$(docker inspect --format '{{.State.Health.Status}}' habitatus-ci)
             [ "$health" = "healthy" ] && break
+            # A container that died never gets past "starting", so waiting for
+            # the health status alone would sit here for ten minutes on a
+            # failure that is already decided — a missing rule file, say.
+            if [ "$state" != "running" ]; then
+              echo "::error::container is '$state' (health '$health') after ${i}0s"
+              docker inspect --format '{{json .State}}' habitatus-ci
+              docker logs habitatus-ci
+              exit 1
+            fi
             if [ "$health" = "unhealthy" ] || [ "$i" = 60 ]; then
               echo "::error::container health is '$health' after ${i}0s"
               docker inspect --format '{{json .State.Health}}' habitatus-ci

@@ -36,9 +36,11 @@ func TestHealthcheckStatus(t *testing.T) {
 		{name: "server error", status: http.StatusInternalServerError, wantErr: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var gotPath string
+			// Through a channel, not a shared variable: the handler runs in
+			// the server's goroutine and CI runs the suite under -race.
+			paths := make(chan string, 1)
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				gotPath = r.URL.Path
+				paths <- r.URL.Path
 				w.WriteHeader(tc.status)
 			}))
 			defer srv.Close()
@@ -50,8 +52,13 @@ func TestHealthcheckStatus(t *testing.T) {
 			if !tc.wantErr && err != nil {
 				t.Fatalf("status %d: %v", tc.status, err)
 			}
-			if gotPath != "/health/ready" {
-				t.Errorf("probed %q, want /health/ready", gotPath)
+			select {
+			case gotPath := <-paths:
+				if gotPath != "/health/ready" {
+					t.Errorf("probed %q, want /health/ready", gotPath)
+				}
+			default:
+				t.Error("the probe never reached the server")
 			}
 		})
 	}

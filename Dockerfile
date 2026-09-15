@@ -46,6 +46,13 @@ COPY data/esy/ATTRIBUTION.md /data/esy/ATTRIBUTION.md
 # asks GET /health/ready on the configured -addr and exits 0 or 1. Exec form,
 # not shell form — there is no shell to parse it.
 #
+# IMPORTANT for anyone overriding the listen address: do it with
+# HABITATUS_ADDR, not with a -addr argument. Docker runs this health command as
+# a SEPARATE process and does not pass the container's own arguments to it, so
+# `docker run habitatus -addr :9090` would serve on 9090 while the probe kept
+# asking :8080 and reported the container unhealthy forever. The environment
+# variable is visible to both processes; the argument is not.
+#
 # start-period covers the one slow part of start-up: parsing the 8 MB rule file
 # takes about a second on a warm machine, and a cold or throttled container
 # needs more. Failures during that window do not count against retries.

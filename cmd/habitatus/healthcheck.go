@@ -8,6 +8,15 @@ import (
 	"time"
 )
 
+// probeClient talks to this container and nothing else. http.DefaultClient
+// honours HTTP_PROXY/HTTPS_PROXY, and for a non-loopback -addr — say
+// 172.17.0.2:8080 — a proxy set in the environment would receive the probe
+// instead of the server one process away. Worse than useless: the proxy's own
+// 200 would report the container healthy while the server is down.
+var probeClient = &http.Client{
+	Transport: &http.Transport{Proxy: nil},
+}
+
 // healthcheckTimeout bounds the probe. A readiness check that hangs is a
 // readiness check that fails, and an orchestrator waiting on it is worse off
 // than one told "not ready" quickly.
@@ -44,7 +53,7 @@ func healthcheck(addr string) error {
 	if err != nil {
 		return fmt.Errorf("healthcheck: %w", err)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := probeClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("healthcheck: %s: %w", url, err)
 	}
