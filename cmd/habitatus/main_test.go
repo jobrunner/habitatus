@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/jobrunner/habitatus/internal/adapters/httpapi"
 )
 
 func envMap(m map[string]string) func(string) string {
@@ -79,13 +81,20 @@ func TestResolveConfigPrecedence(t *testing.T) {
 			env:  map[string]string{"HABITATUS_CORS": "https://a.example, https://b.example"},
 			args: nil,
 			want: config{addr: "127.0.0.1:8080", modeName: "repaired",
-				corsOrigins: []string{"https://a.example", "https://b.example"}},
+				corsOrigins: mustOrigins(t, "https://a.example, https://b.example")},
+		},
+		{
+			name: "a wildcard covers the subdomains of a host",
+			env:  map[string]string{"HABITATUS_CORS": "https://*.fieldworksdiary.org"},
+			args: nil,
+			want: config{addr: "127.0.0.1:8080", modeName: "repaired",
+				corsOrigins: mustOrigins(t, "https://*.fieldworksdiary.org")},
 		},
 		{
 			name: "a -cors flag beats the environment",
 			env:  map[string]string{"HABITATUS_CORS": "https://a.example"},
 			args: []string{"-cors", "*"},
-			want: config{addr: "127.0.0.1:8080", modeName: "repaired", corsOrigins: []string{"*"}},
+			want: config{addr: "127.0.0.1:8080", modeName: "repaired", corsOrigins: mustOrigins(t, "*")},
 		},
 	}
 
@@ -106,7 +115,8 @@ func TestResolveConfigPrecedence(t *testing.T) {
 // half-configured: an operator who wrote the origin wrong would otherwise get
 // a service that looks up and rejects every browser call.
 func TestResolveConfigRejectsBadCORS(t *testing.T) {
-	for _, in := range []string{"a.example", "*,https://a.example", "https://"} {
+	for _, in := range []string{"a.example", "*,https://a.example", "https://",
+		"https://sub*.example", "https://*.", "null"} {
 		if _, err := resolveConfig(envMap(nil), []string{"-cors", in}); err == nil {
 			t.Errorf("resolveConfig(-cors %q) = nil error, want a rejection", in)
 		}
@@ -126,4 +136,15 @@ func TestBadCORSIsReportableConfigError(t *testing.T) {
 	if !strings.Contains(err.Error(), "a.example") {
 		t.Errorf("error %v does not name the offending origin", err)
 	}
+}
+
+// mustOrigins builds the parsed allowlist a table case expects. A bad literal
+// here is a bug in the test, not a case under test.
+func mustOrigins(t *testing.T, s string) []httpapi.OriginPattern {
+	t.Helper()
+	got, err := httpapi.ParseOrigins(s)
+	if err != nil {
+		t.Fatalf("ParseOrigins(%q): %v", s, err)
+	}
+	return got
 }

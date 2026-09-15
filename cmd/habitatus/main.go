@@ -178,6 +178,8 @@ func run(log *slog.Logger, cfg config, mode esy.Mode) error {
 		return nil
 	}
 
+	logCORS(log, cfg.corsOrigins)
+
 	server := &http.Server{
 		Addr:              addr,
 		Handler:           httpapi.WithCORS(httpapi.NewServer(svc), cfg.corsOrigins),
@@ -212,4 +214,25 @@ func run(log *slog.Logger, cfg config, mode esy.Mode) error {
 		log.Info("shut down cleanly")
 		return nil
 	}
+}
+
+// logCORS reports the allowlist the service resolved.
+//
+// A CORS allowlist that matches nothing is invisible from the outside: the
+// browser reports a missing header, and the service looks healthy. Saying what
+// it resolved to — and flagging a scheme no browser sends — turns that into
+// something an operator can read off the log.
+func logCORS(log *slog.Logger, origins []httpapi.OriginPattern) {
+	if len(origins) == 0 {
+		return
+	}
+	names := make([]string, 0, len(origins))
+	for _, o := range origins {
+		names = append(names, o.String())
+		if !o.HasBrowserScheme() {
+			log.Warn("CORS origin uses a scheme no browser sends — check for a typo",
+				"origin", o.String(), "expected", "http, https or an extension scheme")
+		}
+	}
+	log.Info("CORS enabled", "origins", names)
 }

@@ -52,7 +52,11 @@ services:
       # Name the origins rather than using '*' unless the deployment really is
       # public: this service has no authentication, so '*' lets any page a user
       # visits reach it.
+      # An entry is an exact origin, a wildcard over the subdomains of a host
+      # ("https://*.app.example" — the leading label only, scheme and port
+      # still exact), or "*". A malformed entry stops the start.
       # HABITATUS_CORS: "https://app.example, https://admin.example"
+      # HABITATUS_CORS: "https://*.app.example"
 
     # The image ships the rule file, so no volume is needed to run. Mount one
     # only to serve a different rule-file version or to add the nomenclature

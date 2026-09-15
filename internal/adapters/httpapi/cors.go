@@ -3,7 +3,6 @@ package httpapi
 import (
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 )
 
@@ -17,47 +16,29 @@ const preflightMaxAge = "600"
 // expects a reverse proxy, and a permissive default would let any page a user
 // visits reach an internal deployment.
 //
-// "*" allows any origin and may not be combined with named ones — a list that
-// says both is a mistake about what it permits, so it is rejected rather than
-// silently resolved one way.
-func ParseOrigins(s string) ([]string, error) {
-	var out []string
+// An entry is an exact origin ("https://app.example"), a wildcard over the
+// subdomains of a host ("https://*.example"), or "*" for any origin. "*" may
+// not be combined with named ones — a list that says both is a mistake about
+// what it permits, so it is rejected rather than silently resolved one way.
+func ParseOrigins(s string) ([]OriginPattern, error) {
+	var out []OriginPattern
 	for _, raw := range strings.Split(s, ",") {
 		o := strings.TrimSpace(raw)
 		if o == "" {
 			continue
 		}
-		if o != "*" && !isOrigin(o) {
-			return nil, fmt.Errorf("origin %q is not scheme://host[:port]", o)
+		p, err := ParseOriginPattern(o)
+		if err != nil {
+			return nil, err
 		}
-		out = append(out, o)
+		out = append(out, p)
 	}
-	for _, o := range out {
-		if o == "*" && len(out) > 1 {
+	for _, p := range out {
+		if p.IsAny() && len(out) > 1 {
 			return nil, fmt.Errorf("origin \"*\" cannot be combined with named origins")
 		}
 	}
 	return out, nil
-}
-
-// isOrigin reports whether s is exactly scheme://host[:port].
-//
-// An origin carries nothing else — no path, no query, no fragment, no
-// userinfo — and a value that carries one of them can never equal the Origin
-// header a browser sends. It would sit in the allowlist looking configured
-// while matching nothing, which is harder to diagnose than a start-up refusal.
-//
-// Two traps in url.Parse this has to work around: "https://:443" yields a
-// non-empty Host with an empty Hostname, and a trailing "#" leaves Fragment
-// empty, so the raw string is checked for it (there is no ForceFragment to
-// mirror ForceQuery).
-func isOrigin(s string) bool {
-	u, err := url.Parse(s)
-	if err != nil || u.Scheme == "" || u.Host == "" || u.Hostname() == "" {
-		return false
-	}
-	return u.Path == "" && u.RawQuery == "" && !u.ForceQuery &&
-		u.Fragment == "" && !strings.Contains(s, "#") && u.User == nil
 }
 
 // WithCORS answers browser preflights and adds the access-control headers for
@@ -74,14 +55,9 @@ func isOrigin(s string) bool {
 // and no authentication, so there is no ambient authority for a browser to
 // carry, and claiming otherwise would be the one CORS header that can actually
 // grant something.
-func WithCORS(next http.Handler, origins []string) http.Handler {
+func WithCORS(next http.Handler, origins []OriginPattern) http.Handler {
 	if len(origins) == 0 {
 		return next
-	}
-	allowAny := len(origins) == 1 && origins[0] == "*"
-	allowed := make(map[string]bool, len(origins))
-	for _, o := range origins {
-		allowed[o] = true
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -92,13 +68,14 @@ func WithCORS(next http.Handler, origins []string) http.Handler {
 		w.Header().Add("Vary", "Origin")
 
 		origin := r.Header.Get("Origin")
-		ok := origin != "" && (allowAny || allowed[origin])
+		match, ok := matchOrigin(origins, origin)
 		if ok {
-			if allowAny {
+			if match.IsAny() {
 				w.Header().Set("Access-Control-Allow-Origin", "*")
 			} else {
-				// Echo the caller's origin rather than the list: the header
-				// takes exactly one value, and the browser compares it.
+				// Echo the caller's origin rather than the pattern: the header
+				// takes exactly one value, the browser compares it, and a
+				// wildcard pattern is not a value it would ever accept.
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 			}
 		}
@@ -124,4 +101,19 @@ func WithCORS(next http.Handler, origins []string) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// matchOrigin returns the first pattern covering the Origin header value.
+// An absent Origin is not a cross-origin request and matches nothing, not even
+// an allowlist of "*".
+func matchOrigin(origins []OriginPattern, origin string) (OriginPattern, bool) {
+	if origin == "" {
+		return OriginPattern{}, false
+	}
+	for _, p := range origins {
+		if p.Matches(origin) {
+			return p, true
+		}
+	}
+	return OriginPattern{}, false
 }
