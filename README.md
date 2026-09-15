@@ -18,6 +18,131 @@ feuern (`Stats.Unreachable`), in `repaired` keine. Der Modus steht in
 `versions` jeder Antwort und im Startlog. Begründung und Belege:
 [`docs/superpowers/specs/2026-09-12-zwei-semantiken.md`](docs/superpowers/specs/2026-09-12-zwei-semantiken.md).
 
+## Die API im Gebrauch
+
+Alle Ausgaben unten stammen aus einem Lauf von
+`ghcr.io/jobrunner/habitatus:0.2.0`, nicht aus der Beschreibung.
+
+### Bereitschaft
+
+```sh
+curl -fsS http://127.0.0.1:8080/health/ready
+# {"status":"ready"}
+```
+
+Das `-f` gehört dazu: ohne es endet `curl` auch bei 5xx mit Status 0. Aus dem
+Container heraus geht ebenso `docker exec <name> /habitatus -healthcheck`.
+
+### Eine Aufnahme klassifizieren
+
+```sh
+curl -sS -X POST http://127.0.0.1:8080/api/v1/classify \
+  -H 'content-type: application/json' -d '{
+  "backbone": "euro+med",
+  "records": [
+    {"name": "Festuca ovina",        "cover": 30},
+    {"name": "Potentilla argentea",  "cover": 10},
+    {"name": "Dianthus deltoides",   "cover": 5},
+    {"name": "Viola tricolor aggr.", "cover": 3}
+  ],
+  "header": {
+    "Country": "Germany", "Coast_EEA": "N_COAST", "Dunes_Bohn": "N_DUNES",
+    "Ecoreg": "664", "Altitude (m)": "1", "DEG_LAT": "53.06", "DEG_LON": "10.6"
+  }
+}'
+```
+
+```json
+{ "result": "R1P",
+  "matches": [ {"code":"R1P","priority":2}, {"code":"R","priority":1} ],
+  "resolution": [ … ],
+  "versions": { "backbone": "euro+med", "mode": "repaired",
+                "rulepack": "EUNIS-ESy-2025-10-03.txt",
+                "rulepack_sha256": "724ad861…" },
+  "truncated_at_10": false }
+```
+
+Alle sieben Kopffelder sind **Pflicht** — `Country`, `Coast_EEA`,
+`Dunes_Bohn`, `Ecoreg`, `Altitude (m)`, `DEG_LAT`, `DEG_LON` — und alle Werte
+sind Zeichenketten, auch die Zahlen. `Country` erwartet den **englischen**
+ESy-Namen (`Germany`, nicht `Deutschland`); die zulässigen Namen stehen in
+`data/esy-country-names.csv`. `Coast_EEA` und `Dunes_Bohn` liefert ein
+ortus-Paket (siehe `../geopackages/coast-eea`, `../geopackages/dunes-bohn`).
+
+`mode` in `versions` ist **Teil des Ergebnisses**, nicht Beiwerk: `repaired`
+und `faithful` liefern verschiedene Habitate. Wer Antworten protokolliert,
+schreibt das Feld mit.
+
+### Die beiden Fälle, die man beim Integrieren falsch versteht
+
+```sh
+# kein Treffer -> "?" und KEIN Fehler. matches fehlt dann ganz.
+… -d '{"backbone":"euro+med","records":[{"name":"Fagus sylvatica","cover":1}], …}'
+# {"result":"?"}
+
+# unbekannter Name -> ebenfalls "?", aber die Auflösung sagt es:
+# "resolution":[{"input":"Quatschus erfundus", …, "resolved":false}]
+```
+
+`"?"` heißt **„keine Regel trifft"**, nicht „Fehler" — eine korrekte Antwort
+auf eine Aufnahme, für die ESy kein Habitat kennt. Ob ein Name nicht aufgelöst
+werden konnte, steht ausschließlich im `resolution`-Block. Wer wissen will, ob
+seine Nomenklatur passt, prüft dort auf `resolved: false`; das Ergebnisfeld
+allein verrät es nicht.
+
+### Zurückgewiesene Anfragen
+
+```
+HTTP 400  {"error":"Country \"Deutschland\" is not an ESy country name; see data/esy-country-names.csv"}
+HTTP 400  {"error":"cover for \"Festuca ovina\" is 0, must be in (0, 100]"}
+HTTP 400  {"error":"unknown backbone \"unbekannt\""}
+```
+
+Ungültige Kopfwerte werden **abgelehnt statt als unbekannt behandelt**. Ein
+falsch geschriebenes Land würde sonst stillschweigend jede Regel unterdrücken,
+die es prüft — ohne Fehler und mit plausibel aussehendem Ergebnis.
+
+### Metriken
+
+```sh
+curl -fsS http://127.0.0.1:8080/metrics
+# {"total":0,"question":0,"plus":0,"question_share":0,"plus_share":0,
+#  "unreachable_rules":[],"never_fired_rules":[…]}
+```
+
+`question_share` ist der Anteil der Aufnahmen ohne Zuordnung — die Zahl, an der
+man sieht, ob die eigenen Daten zum Regelwerk passen. `unreachable_rules` ist
+in `repaired` leer und listet in `faithful` die 100 Regeln, die dort nie feuern
+können.
+
+### Browser-Zugriff prüfen
+
+```sh
+docker run … -e HABITATUS_CORS='https://app.example' ghcr.io/jobrunner/habitatus:0.2.0
+
+curl -sS -i -X OPTIONS http://127.0.0.1:8080/api/v1/classify \
+  -H 'Origin: https://app.example' \
+  -H 'Access-Control-Request-Method: POST' \
+  -H 'Access-Control-Request-Headers: content-type'
+# HTTP/1.1 204 No Content
+# Access-Control-Allow-Origin: https://app.example
+```
+
+**Der Preflight ist der aussagekräftige Test, nicht der POST.**
+`application/json` löst ihn immer aus, und ohne CORS beantwortet der Mux ihn
+mit 405 — der Browser sendet die eigentliche Anfrage dann nie ab. Ein `curl`
+auf den POST wäre trotzdem erfolgreich und würde nichts beweisen.
+
+### Vom Docker-Host aus
+
+Der Port hängt bewusst auf `127.0.0.1` (siehe Deployment weiter unten). Auf dem
+Host selbst funktionieren alle Aufrufe oben unverändert; von außen führt der
+Weg über den Reverse Proxy. Zum Prüfen ohne Proxy:
+
+```sh
+ssh -L 8080:127.0.0.1:8080 user@host
+```
+
 ## Pre-Merge-Gate
 
 Beide Kommandos laufen inzwischen auch in der CI (siehe Qualitäts-Harness);
