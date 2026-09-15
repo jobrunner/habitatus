@@ -160,8 +160,53 @@ Zugriffskontrolle. Der Container läuft als
 sein, sonst scheitert der Start sichtbar mit einer Fehlermeldung, die die
 Datei nennt.
 
-Kein `HEALTHCHECK`: das Image hat weder Shell noch `curl`. Orchestratoren
-sollen stattdessen direkt gegen `GET /health/ready` prüfen.
+### Healthcheck
+
+Das Image bringt einen mit. Weil es distroless ist — keine Shell, kein `curl`,
+und Docker führt eine Probe ausschließlich **im** Container aus —, prüft das
+Binary sich selbst:
+
+```yaml
+healthcheck:
+  test: ["CMD", "/habitatus", "-healthcheck"]
+  interval: 30s
+  timeout: 5s
+  start_period: 30s
+  retries: 3
+```
+
+`/habitatus -healthcheck` fragt `GET /health/ready` auf der konfigurierten
+`-addr` ab und endet mit 0 oder 1. `CMD` in Exec-Form, nicht als Zeichenkette:
+es gibt keine Shell, die sie zerlegen könnte. Die Regeldatei wird dabei
+**nicht** geladen — die Probe fragt einen laufenden Server, und ein 8 MB großes
+Regelwerk bei jeder Prüfung zu parsen würde jeden Healthcheck so teuer machen
+wie einen Start.
+
+Wer die Lauschadresse überschreibt, muss dafür **`HABITATUS_ADDR` nehmen, nicht
+ein `-addr`-Argument**: Docker führt das Health-Kommando als eigenen Prozess
+aus und reicht ihm die Argumente des Containers nicht weiter. `docker run
+habitatus -addr :9090` würde also auf 9090 lauschen, während die Probe
+weiterhin `:8080` fragt — und der Container gälte dauerhaft als ungesund. Die
+Umgebungsvariable sehen beide Prozesse, das Argument nur einer.
+
+Dasselbe gilt für **`-mcp`**: dieser Modus spricht JSON-RPC über stdio und
+startet keinen HTTP-Server, es gibt also nichts zu proben. Mit `HABITATUS_MCP`
+gesetzt erkennt die Probe das und endet erfolgreich. Als **Argument** übergeben
+kann sie es nicht sehen — dann den Healthcheck abschalten
+(`--no-healthcheck`, in Compose `healthcheck: disable: true`), sonst gilt ein
+einwandfrei arbeitender stdio-Prozess dauerhaft als ungesund.
+
+`start_period` deckt genau diesen Start ab; Fehlschläge in diesem Fenster
+zählen nicht gegen `retries`. Ist `-addr` auf `:8080` oder `0.0.0.0:8080`
+gesetzt, fragt die Probe `127.0.0.1` — für einen Lauscher heißt das „alle
+Interfaces", für einen Aufrufer nichts.
+
+Zwei Dinge, die man dazu wissen sollte: ein einfacher Docker-Host **startet
+einen ungesunden Container nicht neu** — `restart: unless-stopped` reagiert
+darauf, dass der Prozess endet. Der Gesundheitszustand ist das, was `docker ps`
+anzeigt, worauf `depends_on: condition: service_healthy` wartet und was ein
+Monitor auslesen kann. Und von außen bleibt `GET /health/ready` unverändert
+erreichbar.
 
 ### CORS
 

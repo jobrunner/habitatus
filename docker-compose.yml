@@ -13,6 +13,17 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    # Override the listen address with HABITATUS_ADDR, never with a `-addr`
+    # argument: Docker runs the health command as a separate process without
+    # the container's own arguments, so the probe would keep asking the default
+    # port and report unhealthy forever.
+    healthcheck:
+      test: ["CMD", "/habitatus", "-healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
     # No writable volume: habitatus reads the rule file (and, optionally,
     # the backbone tables) once at startup and serves everything else from
     # memory, so --read-only needs no tmpfs mount.

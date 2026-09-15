@@ -63,6 +63,12 @@ func TestResolveConfigPrecedence(t *testing.T) {
 			want: config{addr: "127.0.0.1:8080", modeName: "repaired", mcp: true},
 		},
 		{
+			name: "HABITATUS_MCP selects MCP mode",
+			env:  map[string]string{"HABITATUS_MCP": "1"},
+			args: nil,
+			want: config{addr: "127.0.0.1:8080", modeName: "repaired", mcp: true},
+		},
+		{
 			name: "CORS is off unless asked for",
 			env:  nil,
 			args: nil,

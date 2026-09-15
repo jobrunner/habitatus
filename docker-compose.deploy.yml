@@ -97,12 +97,33 @@ services:
         max-size: "10m"
         max-file: "5"
 
-    # No healthcheck, and that is a decision rather than an omission: the image
-    # is distroless, so it has no shell, no curl and no wget, and Docker can
-    # only run a health probe from inside the container. The service does expose
-    # a probe — GET /health/ready, 200 with {"status":"ready"} — so check it
-    # from outside: the reverse proxy, an uptime monitor, or
-    #     curl -fsS http://127.0.0.1:8080/health/ready
-    # Note also that a plain Docker host does not act on an unhealthy container
-    # anyway; `restart: unless-stopped` reacts to the process exiting, which is
-    # what actually happens when this service fails at start-up.
+    # The binary probes itself. The image is distroless — no shell, no curl —
+    # and Docker runs a health check only from inside the container, so
+    # `/habitatus -healthcheck` asks GET /health/ready on the configured -addr
+    # and exits 0 or 1. CMD in exec form: there is no shell to parse a string.
+    #
+    # The image already declares this; it is repeated here so the values are
+    # visible and adjustable where the deployment is described. start-period
+    # covers parsing the 8 MB rule file at start-up — failures inside that
+    # window do not count against retries.
+    #
+    # Worth knowing: a plain Docker host does not restart an unhealthy
+    # container. `restart: unless-stopped` reacts to the process exiting. The
+    # health state is what `docker ps` reports, what `depends_on:
+    # condition: service_healthy` waits for, and what a monitor can read.
+    # Needs an image that HAS -healthcheck. Older images do not know the flag,
+    # exit 2 on it, and are then reported unhealthy forever — a probe failing
+    # on a service that is answering perfectly well. The pinned tag above and
+    # this block therefore move together; release-please advances the tag, and
+    # if you deliberately pin an older image, delete this block with it.
+    #
+    # Override the listen address with HABITATUS_ADDR, never with a `-addr`
+    # argument: Docker runs the health command as a separate process without
+    # the container's own arguments, so the probe would keep asking the default
+    # port and report unhealthy forever.
+    healthcheck:
+      test: ["CMD", "/habitatus", "-healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
