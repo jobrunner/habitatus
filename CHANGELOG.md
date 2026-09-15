@@ -6,6 +6,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Versions and entries below the Unreleased section are cut by release-please
 from Conventional Commits — do not edit them by hand.
 
+## [0.2.0](https://github.com/jobrunner/habitatus/compare/v0.1.1...v0.2.0) (2026-09-15)
+
+
+### Features
+
+* a healthcheck the container can actually run ([8060494](https://github.com/jobrunner/habitatus/commit/8060494df45ea2e2a804620f2e6850a3b5582354))
+* a healthcheck the container can actually run ([6d3489b](https://github.com/jobrunner/habitatus/commit/6d3489b0d75438c62bb58668699a7369b660974c))
+
+
+### Bug Fixes
+
+* -mcp was reported unhealthy forever ([cac7e1e](https://github.com/jobrunner/habitatus/commit/cac7e1e50d7115dad5d705ab24ef370837ac7bc9))
+* five ways the healthcheck could report the wrong thing ([f2b5df0](https://github.com/jobrunner/habitatus/commit/f2b5df0d048a8f7f9071558748df49de20255420))
+
 ## [0.1.1](https://github.com/jobrunner/habitatus/compare/v0.1.0...v0.1.1) (2026-09-14)
 
 
