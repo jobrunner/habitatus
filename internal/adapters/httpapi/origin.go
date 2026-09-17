@@ -2,9 +2,15 @@ package httpapi
 
 import (
 	"fmt"
+	"net"
+	"regexp"
 	"strconv"
 	"strings"
 )
+
+// opaqueOrigin is what a browser sends for a document with no origin of its
+// own: a sandboxed iframe, a file:// page, some cross-site redirects.
+const opaqueOrigin = "null"
 
 // origin is a web origin: the scheme/host/port triple a browser sends in the
 // Origin header. All three parts identify it — two URLs that differ in scheme
@@ -50,16 +56,8 @@ func ParseOriginPattern(s string) (OriginPattern, error) {
 	if err != nil {
 		return OriginPattern{}, err
 	}
-	if !strings.Contains(o.host, "*") {
+	if !strings.HasPrefix(o.host, "*.") {
 		return OriginPattern{raw: s, origin: o}, nil
-	}
-
-	// The base host must be present: "https://*." would leave the suffix ".",
-	// which matches any host ending in a dot.
-	base, ok := strings.CutPrefix(o.host, "*.")
-	if !ok || base == "" || strings.Contains(base, "*") {
-		return OriginPattern{}, fmt.Errorf(
-			"origin %q: \"*\" must be the whole leading host label (e.g. https://*.example.com)", s)
 	}
 
 	return OriginPattern{
@@ -133,7 +131,7 @@ func parseOrigin(s string, allowWildcard bool) (origin, error) {
 	// to any sandboxed document anywhere, and it cannot be narrowed — so it is
 	// refused with its own reason; the generic "needs a scheme" advice would
 	// suggest "https://null".
-	if s == "null" {
+	if s == opaqueOrigin {
 		return origin{}, fmt.Errorf(
 			"the opaque origin \"null\" cannot be allow-listed — it would admit any " +
 				"sandboxed document; list the real origin instead")
@@ -199,61 +197,40 @@ func splitHostPort(hostPort string) (host, port string, hasPort bool, err error)
 	return hostPort, "", false, nil
 }
 
-// isHost reports whether s is a host an Origin header can carry: a bracketed
-// IPv6 literal, or dot-separated labels of letters, digits, "-" and "_".
+// hostPattern is a host as an Origin header can carry it: dot-separated
+// labels of letters, digits, "-" and "_".
 //
-// Checking the character set is what keeps a path, query, fragment or userinfo
-// out — each of them shows up here as a character no host may contain.
+// Matching the whole host against it is what keeps a path, query, fragment or
+// userinfo out — each of them shows up here as a character no host may
+// contain, which is the check url.Parse does not offer. Underscores are
+// allowed: they are not legal in a hostname, but browsers do send them, so
+// refusing one would reject an origin that actually arrives.
+var hostPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$`)
+
+// isHost reports whether s is such a host, a bracketed IPv6 literal, or — for
+// an allowlist entry — a wildcard over the leading label. Only an entry may
+// carry the "*"; an Origin header containing one would be a host named "*".
 func isHost(s string, allowWildcard bool) bool {
-	if strings.HasPrefix(s, "[") {
-		return isIPv6Literal(s)
+	if after, bracketed := strings.CutPrefix(s, "["); bracketed {
+		inner, closed := strings.CutSuffix(after, "]")
+		return closed && isIPv6(inner)
 	}
-	for i, label := range strings.Split(s, ".") {
-		// The wildcard is a whole label and only the leading one; a "*"
-		// anywhere else is rejected by ParseOriginPattern.
-		if label == "*" && allowWildcard && i == 0 {
-			continue
-		}
-		if !isHostLabel(label) {
-			return false
+	if allowWildcard {
+		// Only as a whole leading label: "*.example.com" is a rule about the
+		// subdomains of example.com, while "sub*.example.com" is a shape no
+		// browser origin can be compared against label by label.
+		if rest, ok := strings.CutPrefix(s, "*."); ok {
+			return hostPattern.MatchString(rest)
 		}
 	}
-	return true
+	return hostPattern.MatchString(s)
 }
 
-// isHostLabel reports whether one dot-separated label is well formed.
-// Underscores are allowed: they are not legal in a hostname, but browsers do
-// send them, so refusing one would reject an origin that actually arrives.
-func isHostLabel(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
-		case r == '-', r == '_':
-		default:
-			return false
-		}
-	}
-	return true
-}
-
-// isIPv6Literal reports whether s is a bracketed IPv6 address, the one host
-// form whose own syntax contains colons. The zone separator "%" is part of it.
-func isIPv6Literal(s string) bool {
-	inner, ok := strings.CutSuffix(strings.TrimPrefix(s, "["), "]")
-	if !ok || inner == "" {
-		return false
-	}
-	for _, r := range inner {
-		if !isHexDigit(r) && r != ':' && r != '.' && r != '%' {
-			return false
-		}
-	}
-	return true
-}
-
-func isHexDigit(r rune) bool {
-	return r >= '0' && r <= '9' || r >= 'a' && r <= 'f' || r >= 'A' && r <= 'F'
+// isIPv6 reports whether s is the address inside a bracketed literal. The zone
+// after a "%" is not part of the address, so it is cut before parsing; the
+// colon requirement is what keeps a bracketed IPv4 address out, which no
+// browser sends.
+func isIPv6(s string) bool {
+	addr, _, _ := strings.Cut(s, "%")
+	return strings.Contains(addr, ":") && net.ParseIP(addr) != nil
 }

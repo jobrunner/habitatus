@@ -17,7 +17,7 @@ func TestParseOriginPatternRejects(t *testing.T) {
 		"https://a.example:0",   // ports outside 1-65535 can never be sent
 		"https://a.example:99999",
 		"https://a.example:http",   // nor a service name
-		"null",                     // the opaque origin is not allow-listable
+		opaqueOrigin,               // the opaque origin is not allow-listable
 		"https://*.",               // a wildcard needs a base host
 		"https://*",                // "*" alone is not a host
 		"https://sub*.example.com", // the "*" must be a whole label
@@ -70,7 +70,7 @@ func TestOriginPatternMatches(t *testing.T) {
 		{pattern: "https://*.fieldworksdiary.org", origin: "http://app.fieldworksdiary.org"},       // scheme still exact
 		{pattern: "https://*.fieldworksdiary.org", origin: "https://app.fieldworksdiary.org:8443"}, // port too
 		{pattern: "https://*.fieldworksdiary.org", origin: "https://evil.example"},
-		{pattern: "https://a.example", origin: "null"}, // a malformed origin never matches
+		{pattern: "https://a.example", origin: opaqueOrigin}, // never matches
 		{pattern: "https://a.example", origin: "garbage"},
 		// Scheme and host are case-insensitive; a browser lowercases them, and
 		// an operator writing the allowlist by hand may not.

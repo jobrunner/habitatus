@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 )
@@ -39,6 +40,29 @@ func ParseOrigins(s string) ([]OriginPattern, error) {
 		}
 	}
 	return out, nil
+}
+
+// LogCORS reports the allowlist the service resolved, next to the parsing that
+// decides what its entries mean.
+//
+// An allowlist that matches nothing is invisible from the outside: the browser
+// reports a missing header, and the service looks healthy. Naming what it
+// resolved to — and flagging a scheme no browser sends, the one typo no
+// structural check can catch — turns that into something an operator can read
+// off the log instead of out of a browser console.
+func LogCORS(log *slog.Logger, origins []OriginPattern) {
+	if len(origins) == 0 {
+		return
+	}
+	names := make([]string, 0, len(origins))
+	for _, o := range origins {
+		names = append(names, o.String())
+		if !o.HasBrowserScheme() {
+			log.Warn("CORS origin uses a scheme no browser sends — check for a typo",
+				"origin", o.String(), "expected", "http, https or an extension scheme")
+		}
+	}
+	log.Info("CORS enabled", "origins", names)
 }
 
 // WithCORS answers browser preflights and adds the access-control headers for

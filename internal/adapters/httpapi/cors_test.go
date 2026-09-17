@@ -1,8 +1,11 @@
 package httpapi
 
 import (
+	"bytes"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -186,6 +189,38 @@ func TestWithCORSSimpleRequest(t *testing.T) {
 			// hand one origin's response to another.
 			if rec.Header().Get("Vary") != "Origin" {
 				t.Errorf("Vary = %q, want Origin", rec.Header().Get("Vary"))
+			}
+		})
+	}
+}
+
+// The start-up log is what makes a misconfigured allowlist readable without a
+// browser: it names what the service resolved, and warns about the one entry
+// shape that parses but can never match.
+func TestLogCORS(t *testing.T) {
+	for _, tc := range []struct {
+		name, allow string
+		wantLevel   slog.Level
+		want        []string
+		wantNone    bool
+	}{
+		{name: "off says nothing", allow: "", wantNone: true},
+		{name: "names the allowlist", allow: "https://a.example, https://*.b.example",
+			want: []string{"CORS enabled", "https://a.example", "https://*.b.example"}},
+		{name: "warns about a scheme no browser sends", allow: "htps://a.example",
+			want: []string{"check for a typo", "htps://a.example"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			LogCORS(slog.New(slog.NewTextHandler(&buf, nil)), mustOrigins(t, tc.allow))
+
+			if tc.wantNone && buf.Len() != 0 {
+				t.Fatalf("logged %q with CORS off, want nothing", buf.String())
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(buf.String(), want) {
+					t.Errorf("log = %q, want it to mention %q", buf.String(), want)
+				}
 			}
 		})
 	}
