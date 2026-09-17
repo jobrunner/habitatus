@@ -98,12 +98,16 @@ func (p OriginPattern) String() string { return p.raw }
 func (p OriginPattern) IsAny() bool { return p.any }
 
 // Matches reports whether a raw Origin header value is covered by the pattern.
-// A malformed origin never matches.
+// A malformed origin never matches — not even under "*", which is a rule about
+// origins and not about arbitrary header values.
 func (p OriginPattern) Matches(s string) bool {
-	if p.any {
-		return true
-	}
 	o, err := parseOrigin(s, false)
+	if p.any {
+		// The opaque origin cannot be parsed and cannot be allow-listed by
+		// name, but "*" is the one allowlist that legitimately covers it: a
+		// sandboxed document sends it as this literal.
+		return err == nil || s == opaqueOrigin
+	}
 	if err != nil {
 		return false
 	}
@@ -122,9 +126,12 @@ func (p OriginPattern) Matches(s string) bool {
 // permits a leading "*." label, which only an allowlist entry may carry — an
 // Origin header that contained one would be a host named "*", not a pattern.
 //
-// Scheme and host are lowercased: a browser sends them lowercased, while an
-// operator writing the allowlist by hand may not, and a case difference that
-// silently disables an entry is the same trap as the one above.
+// Scheme, host and port come back canonicalised — lowercased, an IPv6 literal
+// in its shortest form, a port without leading zeroes — because the comparison
+// is a string comparison against what a browser sends. An entry that differs
+// from the browser's spelling only in case, in ":0443" or in
+// "[0:0:0:0:0:0:0:1]" would parse, start the service, and match nothing: the
+// same trap as the one above.
 func parseOrigin(s string, allowWildcard bool) (origin, error) {
 	// Browsers send "null" for opaque origins: sandboxed iframes, file://
 	// documents, some cross-site redirects. Allow-listing it would open the API
@@ -142,6 +149,11 @@ func parseOrigin(s string, allowWildcard bool) (origin, error) {
 		return origin{}, fmt.Errorf("origin %q needs a scheme — write it as https://%s",
 			s, strings.TrimPrefix(s, "://"))
 	}
+	if !schemePattern.MatchString(scheme) {
+		return origin{}, fmt.Errorf(
+			"origin %q has an invalid scheme %q — a scheme starts with a letter and "+
+				"continues with letters, digits, \"+\", \"-\" or \".\"", s, scheme)
+	}
 
 	host, port, hasPort, err := splitHostPort(rest)
 	if err != nil {
@@ -150,7 +162,8 @@ func parseOrigin(s string, allowWildcard bool) (origin, error) {
 	if host == "" {
 		return origin{}, fmt.Errorf("origin %q needs a host", s)
 	}
-	if !isHost(host, allowWildcard) {
+	canonicalHost, hostOK := canonicalHost(host, allowWildcard)
+	if !hostOK {
 		return origin{}, fmt.Errorf(
 			"origin %q: %q is not a host — an origin is scheme://host[:port] with no "+
 				"path, query, fragment or userinfo", s, host)
@@ -158,25 +171,34 @@ func parseOrigin(s string, allowWildcard bool) (origin, error) {
 	// A port that is not decimal digits in 1-65535 is one no browser can ever
 	// send, so the entry would be a rule that never matches. strconv.Atoi alone
 	// is not that check: it accepts a sign, and "+443" is not a port.
-	if hasPort && !isPort(port) {
-		return origin{}, fmt.Errorf("origin %q has an invalid port %q (expected 1-65535)", s, port)
+	if hasPort {
+		canonical, portOK := canonicalPort(port)
+		if !portOK {
+			return origin{}, fmt.Errorf("origin %q has an invalid port %q (expected 1-65535)", s, port)
+		}
+		port = canonical
 	}
 
 	scheme = strings.ToLower(scheme)
 	return origin{
 		scheme: scheme,
-		host:   strings.ToLower(host),
+		host:   canonicalHost,
 		port:   withoutDefaultPort(scheme, port),
 	}, nil
 }
 
-// isPort reports whether s is a decimal port number in 1-65535.
-func isPort(s string) bool {
+// canonicalPort returns a decimal port in 1-65535 as a browser writes it.
+// Leading zeroes are a spelling, not a different port: ":0443" and ":443" are
+// the same, and comparing them as text would leave the first matching nothing.
+func canonicalPort(s string) (string, bool) {
 	if strings.TrimLeft(s, "0123456789") != "" {
-		return false
+		return "", false
 	}
 	n, err := strconv.Atoi(s)
-	return err == nil && n >= 1 && n <= 65535
+	if err != nil || n < 1 || n > 65535 {
+		return "", false
+	}
+	return strconv.Itoa(n), true
 }
 
 // defaultPorts are the ports a browser leaves out of the Origin header because
@@ -232,30 +254,41 @@ func splitHostPort(hostPort string) (host, port string, hasPort bool, err error)
 // refusing one would reject an origin that actually arrives.
 var hostPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$`)
 
-// isHost reports whether s is such a host, a bracketed IPv6 literal, or — for
-// an allowlist entry — a wildcard over the leading label. Only an entry may
-// carry the "*"; an Origin header containing one would be a host named "*".
-func isHost(s string, allowWildcard bool) bool {
+// schemePattern is the URI scheme grammar of RFC 3986 §3.1. Without it
+// "1https://app.example" and "https/evil://app.example" parse as schemes, and
+// the entry is then one no browser can ever send.
+var schemePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*$`)
+
+// canonicalHost returns the host as a browser writes it in the Origin header,
+// and reports whether it is a host at all: dot-separated labels, a bracketed
+// IPv6 literal, or — for an allowlist entry — a wildcard over the leading
+// label. Only an entry may carry the "*"; an Origin header containing one
+// would be a host named "*".
+//
+// Canonicalising rather than merely accepting is what makes the comparison
+// hold: a browser sends "https://[::1]", so an allowlist entry written
+// "https://[0:0:0:0:0:0:0:1]" has to arrive at the same string.
+func canonicalHost(s string, allowWildcard bool) (string, bool) {
 	if after, bracketed := strings.CutPrefix(s, "["); bracketed {
 		inner, closed := strings.CutSuffix(after, "]")
-		return closed && isIPv6(inner)
-	}
-	if allowWildcard {
-		// Only as a whole leading label: "*.example.com" is a rule about the
-		// subdomains of example.com, while "sub*.example.com" is a shape no
-		// browser origin can be compared against label by label.
-		if rest, ok := strings.CutPrefix(s, "*."); ok {
-			return hostPattern.MatchString(rest)
+		ip := net.ParseIP(inner)
+		// The colon requirement keeps a bracketed IPv4 address out, which no
+		// browser sends. A zone ("%eth0") is refused by ParseIP, and with it
+		// the delimiters a zone could otherwise smuggle past this check.
+		if !closed || ip == nil || !strings.Contains(inner, ":") {
+			return "", false
 		}
+		return "[" + ip.String() + "]", true
 	}
-	return hostPattern.MatchString(s)
-}
-
-// isIPv6 reports whether s is the address inside a bracketed literal. The zone
-// after a "%" is not part of the address, so it is cut before parsing; the
-// colon requirement is what keeps a bracketed IPv4 address out, which no
-// browser sends.
-func isIPv6(s string) bool {
-	addr, _, _ := strings.Cut(s, "%")
-	return strings.Contains(addr, ":") && net.ParseIP(addr) != nil
+	// Only as a whole leading label: "*.example.com" is a rule about the
+	// subdomains of example.com, while "sub*.example.com" is a shape no
+	// browser origin can be compared against label by label.
+	base := s
+	if rest, wildcard := strings.CutPrefix(s, "*."); wildcard && allowWildcard {
+		base = rest
+	}
+	if !hostPattern.MatchString(base) {
+		return "", false
+	}
+	return strings.ToLower(s), true
 }

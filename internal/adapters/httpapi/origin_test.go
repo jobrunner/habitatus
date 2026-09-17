@@ -18,6 +18,10 @@ func TestParseOriginPatternRejects(t *testing.T) {
 		"https://a.example:99999",
 		"https://a.example:+443",   // a sign is not part of a port
 		"https://a.example: 443",   // nor whitespace
+		"1https://a.example",       // a scheme starts with a letter
+		"https/evil://a.example",   // and carries no slash
+		"https://[::1%eth0]",       // a zone is not part of an origin
+		"https://[::1%/path]",      // least of all one smuggling a path
 		"https://a.example:http",   // nor a service name
 		opaqueOrigin,               // the opaque origin is not allow-listable
 		"https://*.",               // a wildcard needs a base host
@@ -70,6 +74,13 @@ func TestOriginPatternMatches(t *testing.T) {
 		{pattern: "http://a.example:80", origin: "http://a.example", want: true},
 		{pattern: "http://a.example:443", origin: "http://a.example"}, // 443 is not http's default
 		{pattern: "https://*.b.example:443", origin: "https://a.b.example", want: true},
+		// A port is a number, and an IPv6 literal an address: both are compared
+		// as a browser writes them, not as the operator spelled them.
+		{pattern: "https://a.example:0443", origin: "https://a.example", want: true},
+		{pattern: "https://a.example:08443", origin: "https://a.example:8443", want: true},
+		{pattern: "https://[0:0:0:0:0:0:0:1]", origin: "https://[::1]", want: true},
+		{pattern: "https://[::1]:8080", origin: "https://[0:0:0:0:0:0:0:1]:8080", want: true},
+		{pattern: "https://[::1]", origin: "https://[::2]"},
 		{pattern: "http://localhost:5173", origin: "http://localhost:5173", want: true},
 		{pattern: "http://localhost:5173", origin: "http://localhost"},
 		{pattern: "https://*.fieldworksdiary.org", origin: "https://app.fieldworksdiary.org", want: true},
@@ -109,6 +120,17 @@ func TestParseOriginPatternAny(t *testing.T) {
 	}
 	if !p.Matches("https://anything.example") {
 		t.Error("\"*\" must match any origin")
+	}
+	// "any origin" means any origin — not any string. A malformed Origin
+	// header is answered with no access-control header at all, the same as
+	// under a named allowlist.
+	if p.Matches("garbage") || p.Matches("https://bad host") {
+		t.Error("\"*\" matched a malformed Origin header")
+	}
+	// The exception is the opaque origin: a browser sends it as a literal, and
+	// "*" is the one allowlist that legitimately covers it.
+	if !p.Matches(opaqueOrigin) {
+		t.Error("\"*\" must cover the opaque origin a sandboxed document sends")
 	}
 	if named, err := ParseOriginPattern("https://a.example"); err != nil || named.IsAny() {
 		t.Errorf("a named origin reported IsAny (err=%v)", err)
