@@ -245,7 +245,8 @@ func splitHostPort(hostPort string) (host, port string, hasPort bool, err error)
 }
 
 // hostPattern is a host as an Origin header can carry it: dot-separated
-// labels of letters, digits, "-" and "_".
+// labels of letters, digits, "-" and "_". The optional final dot of an
+// absolute DNS name is handled outside the regexp.
 //
 // Matching the whole host against it is what keeps a path, query, fragment or
 // userinfo out — each of them shows up here as a character no host may
@@ -283,12 +284,62 @@ func canonicalHost(s string, allowWildcard bool) (string, bool) {
 	// Only as a whole leading label: "*.example.com" is a rule about the
 	// subdomains of example.com, while "sub*.example.com" is a shape no
 	// browser origin can be compared against label by label.
-	base := s
+	prefix, base := "", s
 	if rest, wildcard := strings.CutPrefix(s, "*."); wildcard && allowWildcard {
-		base = rest
+		prefix, base = "*.", rest
+	}
+	trailingDot := strings.HasSuffix(base, ".")
+	base = strings.TrimSuffix(base, ".")
+	if host, ok, numeric := canonicalNumericHost(base); numeric {
+		if !ok {
+			return "", false
+		}
+		return prefix + host, true
 	}
 	if !hostPattern.MatchString(base) {
 		return "", false
 	}
-	return strings.ToLower(s), true
+	if trailingDot {
+		base += "."
+	}
+	return prefix + strings.ToLower(base), true
+}
+
+// canonicalNumericHost canonicalises the all-decimal IPv4 spellings browsers
+// collapse in URL origins: "127.1", "127.000.000.001" and "2130706433" all
+// come back as "127.0.0.1". A host containing only digits and dots is treated
+// as one of these IPv4 forms rather than as a DNS name; otherwise an allowlist
+// entry could look valid, start the service, and still never match the Origin
+// header a browser serialises from the same URL.
+func canonicalNumericHost(s string) (canonical string, ok, numeric bool) {
+	if s == "" || strings.Trim(s, "0123456789.") != "" {
+		return "", false, false
+	}
+	parts := strings.Split(s, ".")
+	if len(parts) > 4 || parts[len(parts)-1] == "" {
+		return "", false, true
+	}
+	var ip uint64
+	for i, part := range parts {
+		if part == "" {
+			return "", false, true
+		}
+		n, err := strconv.ParseUint(part, 10, 32)
+		if err != nil {
+			return "", false, true
+		}
+		if i < len(parts)-1 {
+			if n > 255 {
+				return "", false, true
+			}
+			ip |= n << (24 - 8*i)
+			continue
+		}
+		lastBytes := 5 - len(parts)
+		if n >= uint64(1)<<(8*lastBytes) {
+			return "", false, true
+		}
+		ip |= n
+	}
+	return fmt.Sprintf("%d.%d.%d.%d", byte(ip>>24), byte(ip>>16), byte(ip>>8), byte(ip)), true, true
 }
