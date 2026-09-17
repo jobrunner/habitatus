@@ -379,8 +379,20 @@ Herkünfte:
 
 ```sh
 docker run ... -e HABITATUS_CORS='https://app.example, http://localhost:5173'
+docker run ... -e HABITATUS_CORS='https://*.app.example'   # alle Subdomains
 docker run ... habitatus:latest -cors '*'      # jede Herkunft
 ```
+
+Ein Eintrag ist entweder eine exakte Herkunft, ein Platzhalter über die
+Subdomains eines Hosts (`https://*.app.example`) oder `*` für jede Herkunft.
+Der Platzhalter ersetzt genau das **erste Label** — `https://a.app.example` und
+`https://a.b.app.example` passen, die nackte Domain `https://app.example`
+nicht. Schema und Port müssen weiterhin exakt stimmen; sie mitzuweiten würde
+Antworten an Server ausliefern, die der Betreiber nie gelistet hat — eine
+`http://`-Schwester derselben Domain etwa oder einen anderen Dienst auf einem
+anderen Port. Der vom Schema implizierte Port ist dabei derselbe wie keiner:
+`https://app.example:443` und `https://app.example` sind eine Herkunft, denn
+ein Browser lässt ihn im `Origin`-Header weg.
 
 Ohne diese Angabe ist die API **aus einem Browser heraus nicht erreichbar** —
 nicht eingeschränkt, sondern gar nicht: `POST /api/v1/classify` nimmt
@@ -402,9 +414,31 @@ eine Herkunft an eine andere ausliefert — und beim Preflight zusätzlich
 `Allow-Credentials`: der Dienst hat weder Sitzungen noch Authentifizierung,
 also gibt es keine Rechte, die ein Browser mittragen könnte.
 
-Eine unbrauchbare Angabe (`a.example` ohne Schema, `*` mit benannten Herkünften
-gemischt) stoppt den Start mit einer Meldung, die den Wert nennt, statt mit
-einer halb konfigurierten CORS weiterzulaufen.
+Eine unbrauchbare Angabe (`a.example` ohne Schema, `https://sub*.example` mit
+einem Platzhalter mitten im Label, ein Pfad, eine Query, ein Port außerhalb
+1–65535, `null`, oder `*` mit benannten Herkünften gemischt) stoppt den Start
+mit einer Meldung, die den Wert nennt, statt mit einer halb konfigurierten CORS
+weiterzulaufen. Genau das ist der Punkt: Ein Eintrag, den ein Browser nie
+senden kann, stünde sonst konfiguriert aussehend in der Liste und würde nichts
+treffen. Aus demselben Grund abgelehnt wird ein numerischer Host in einer
+anderen Schreibweise als der Dotted-Quad-Form (`https://127.1`,
+`https://0177.0.0.1`, `https://0x7f000001`): ein Browser liest all das als
+IPv4-Adresse und sendet `https://127.0.0.1`, der Eintrag träfe also nie.
+Ebenso abgelehnt werden ein Port oder ein Platzhalter bei einer
+Extension-Herkunft (`chrome-extension://…`) — die hat weder das eine noch das
+andere. Ein absoluter DNS-Name mit abschließendem Punkt
+(`https://app.example.`) ist dagegen gültig — den sendet ein Browser genau so,
+und er bleibt eine andere Herkunft als `https://app.example`.
+
+Umgekehrt werden Schreibweisen, die derselbe Browser vereinheitlicht, auch hier
+vereinheitlicht: Groß-/Kleinschreibung, der vom Schema implizierte Port
+(`:443` bei `https`), führende Nullen im Port (`:0443`) und die Langform eines
+IPv6-Literals (`[0:0:0:0:0:0:0:1]` = `[::1]`).
+
+Beim Start protokolliert der Dienst die aufgelöste Liste
+(`"msg":"CORS enabled","origins":[...]`) und warnt bei einem Schema, das kein
+Browser sendet (`htps://…`) — dem einzigen Tippfehler, den keine Strukturprüfung
+fangen kann.
 
 ### Deployment auf einem Docker-Host
 

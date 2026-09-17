@@ -1,8 +1,11 @@
 package httpapi
 
 import (
+	"bytes"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -25,6 +28,7 @@ func TestParseOrigins(t *testing.T) {
 		{in: "https://a.example", want: []string{"https://a.example"}},
 		{in: "https://a.example, http://localhost:5173",
 			want: []string{"https://a.example", "http://localhost:5173"}},
+		{in: "https://*.fieldworksdiary.org", want: []string{"https://*.fieldworksdiary.org"}},
 		{in: "*,https://a.example", wantErr: true},
 		{in: "a.example", wantErr: true},             // no scheme
 		{in: "https://", wantErr: true},              // no host
@@ -34,6 +38,7 @@ func TestParseOrigins(t *testing.T) {
 		{in: "https://a.example?", wantErr: true},    // nor a bare "?"
 		{in: "https://a.example#f", wantErr: true},   // nor a fragment
 		{in: "https://u:p@a.example", wantErr: true}, // nor userinfo
+		{in: "https://sub*.example", wantErr: true},  // a partial-label wildcard
 	} {
 		got, err := ParseOrigins(tc.in)
 		if tc.wantErr {
@@ -51,11 +56,22 @@ func TestParseOrigins(t *testing.T) {
 			continue
 		}
 		for i := range got {
-			if got[i] != tc.want[i] {
-				t.Errorf("ParseOrigins(%q)[%d] = %q, want %q", tc.in, i, got[i], tc.want[i])
+			if got[i].String() != tc.want[i] {
+				t.Errorf("ParseOrigins(%q)[%d] = %q, want %q", tc.in, i, got[i].String(), tc.want[i])
 			}
 		}
 	}
+}
+
+// mustOrigins is the allowlist a test configures; a bad literal here is a bug
+// in the test, not a case under test.
+func mustOrigins(t *testing.T, s string) []OriginPattern {
+	t.Helper()
+	got, err := ParseOrigins(s)
+	if err != nil {
+		t.Fatalf("ParseOrigins(%q): %v", s, err)
+	}
+	return got
 }
 
 // An empty allowlist must leave the handler untouched, so that turning CORS
@@ -80,7 +96,7 @@ func TestWithCORSDisabledIsTransparent(t *testing.T) {
 // The preflight is the whole point: application/json is not a simple content
 // type, so without this the browser never sends the classify request at all.
 func TestWithCORSPreflight(t *testing.T) {
-	h := WithCORS(okHandler(), []string{"https://a.example"})
+	h := WithCORS(okHandler(), mustOrigins(t, "https://a.example"))
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodOptions, "/api/v1/classify", nil)
@@ -108,7 +124,7 @@ func TestWithCORSPreflight(t *testing.T) {
 // A disallowed origin gets a 204 with no access-control headers. That is what
 // makes the browser refuse; the server does not need to say more.
 func TestWithCORSPreflightForeignOrigin(t *testing.T) {
-	h := WithCORS(okHandler(), []string{"https://a.example"})
+	h := WithCORS(okHandler(), mustOrigins(t, "https://a.example"))
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodOptions, "/api/v1/classify", nil)
 	req.Header.Set("Origin", "https://evil.example")
@@ -130,7 +146,7 @@ func TestWithCORSBareOptionsFallsThrough(t *testing.T) {
 	h := WithCORS(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		reached = true
 		w.WriteHeader(http.StatusMethodNotAllowed)
-	}), []string{"*"})
+	}), mustOrigins(t, "*"))
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodOptions, "/api/v1/classify", nil))
@@ -145,19 +161,23 @@ func TestWithCORSBareOptionsFallsThrough(t *testing.T) {
 func TestWithCORSSimpleRequest(t *testing.T) {
 	for _, tc := range []struct {
 		name, origin, want string
-		allow              []string
+		allow              string
 	}{
-		{name: "wildcard", allow: []string{"*"}, origin: "https://anything.example", want: "*"},
-		{name: "listed", allow: []string{"https://a.example", "https://b.example"},
+		{name: "any", allow: "*", origin: "https://anything.example", want: "*"},
+		{name: "listed", allow: "https://a.example, https://b.example",
 			origin: "https://b.example", want: "https://b.example"},
-		{name: "not listed", allow: []string{"https://a.example"},
+		{name: "not listed", allow: "https://a.example",
 			origin: "https://evil.example", want: ""},
+		{name: "subdomain wildcard", allow: "https://*.fieldworksdiary.org",
+			origin: "https://app.fieldworksdiary.org", want: "https://app.fieldworksdiary.org"},
+		{name: "wildcard does not cover the bare domain", allow: "https://*.fieldworksdiary.org",
+			origin: "https://fieldworksdiary.org", want: ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
 			req.Header.Set("Origin", tc.origin)
-			WithCORS(okHandler(), tc.allow).ServeHTTP(rec, req)
+			WithCORS(okHandler(), mustOrigins(t, tc.allow)).ServeHTTP(rec, req)
 
 			if got := rec.Header().Get("Access-Control-Allow-Origin"); got != tc.want {
 				t.Errorf("allow-origin = %q, want %q", got, tc.want)
@@ -169,6 +189,58 @@ func TestWithCORSSimpleRequest(t *testing.T) {
 			// hand one origin's response to another.
 			if rec.Header().Get("Vary") != "Origin" {
 				t.Errorf("Vary = %q, want Origin", rec.Header().Get("Vary"))
+			}
+		})
+	}
+}
+
+// The start-up log is what makes a misconfigured allowlist readable without a
+// browser: it names what the service resolved, and warns about the one entry
+// shape that parses but can never match.
+func TestLogCORS(t *testing.T) {
+	type wantLog struct {
+		level slog.Level
+		have  []string
+	}
+
+	for _, tc := range []struct {
+		name, allow string
+		want        []wantLog
+		wantNone    bool
+	}{
+		{name: "off says nothing", allow: "", wantNone: true},
+		{name: "names the allowlist", allow: "https://a.example, https://*.b.example", want: []wantLog{{
+			level: slog.LevelInfo,
+			have:  []string{"CORS enabled", "https://a.example", "https://*.b.example"},
+		}}},
+		{name: "warns about a scheme no browser sends", allow: "htps://a.example", want: []wantLog{
+			{level: slog.LevelWarn, have: []string{"check for a typo", "htps://a.example"}},
+			{level: slog.LevelInfo, have: []string{"CORS enabled", "htps://a.example"}},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			LogCORS(slog.New(slog.NewTextHandler(&buf, nil)), mustOrigins(t, tc.allow))
+
+			if tc.wantNone && buf.Len() != 0 {
+				t.Fatalf("logged %q with CORS off, want nothing", buf.String())
+			}
+			if tc.wantNone {
+				return
+			}
+			lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+			if got, want := len(lines), len(tc.want); got != want {
+				t.Fatalf("logged %d line(s), want %d: %q", got, want, buf.String())
+			}
+			for i, want := range tc.want {
+				if !strings.Contains(lines[i], "level="+want.level.String()) {
+					t.Errorf("line %d = %q, want level %s", i, lines[i], want.level)
+				}
+				for _, have := range want.have {
+					if !strings.Contains(lines[i], have) {
+						t.Errorf("line %d = %q, want it to mention %q", i, lines[i], have)
+					}
+				}
 			}
 		})
 	}

@@ -178,6 +178,8 @@ func run(log *slog.Logger, cfg config, mode esy.Mode) error {
 		return nil
 	}
 
+	httpapi.LogCORS(log, cfg.corsOrigins)
+
 	server := &http.Server{
 		Addr:              addr,
 		Handler:           httpapi.WithCORS(httpapi.NewServer(svc), cfg.corsOrigins),

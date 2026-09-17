@@ -26,7 +26,7 @@ type config struct {
 	rulesPath     string
 	backbonesPath string
 	modeName      string
-	corsOrigins   []string
+	corsOrigins   []httpapi.OriginPattern
 	mcp           bool
 	healthcheck   bool
 }
