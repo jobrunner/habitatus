@@ -24,6 +24,7 @@ func TestParseOriginPatternRejects(t *testing.T) {
 		"https://[::1%/path]",      // least of all one smuggling a path
 		"https://127.1",            // a browser sends this as 127.0.0.1
 		"https://0177.0.0.1",       // and this too
+		"https://*.127.0.0.1",      // a wildcard only applies to DNS labels
 		"https://a.example:http",   // nor a service name
 		opaqueOrigin,               // the opaque origin is not allow-listable
 		"https://*.",               // a wildcard needs a base host

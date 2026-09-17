@@ -191,19 +191,23 @@ func canonicalHost(s string, allowWildcard bool) (string, bool) {
 	// subdomains of example.com, while "sub*.example.com" is a shape no
 	// browser origin can be compared against label by label.
 	base := s
-	if rest, wildcard := strings.CutPrefix(s, "*."); wildcard && allowWildcard {
+	wildcard := false
+	if rest, hasWildcard := strings.CutPrefix(s, "*."); hasWildcard && allowWildcard {
 		base = rest
+		wildcard = true
 	}
 	if !hostPattern.MatchString(base) {
 		return "", false
 	}
-	// A numeric host is an address, not a name, and a browser writes it as a
-	// dotted quad: "127.1" and "0177.0.0.1" are both 127.0.0.1 to it, and as
-	// written here they would match nothing. Refused rather than converted —
-	// the shortened and octal forms are a URL-parsing quirk, not something an
-	// operator means to configure. (A host written in hex, "0x7f000001", is a
+	// A numeric host is an address, not a name, so a wildcard over it is not a
+	// rule about subdomains at all. Exact IPv4 literals are allowed in the one
+	// dotted-quad form a browser sends; the shortened and octal spellings are
+	// refused rather than converted. (A host written in hex, "0x7f000001", is a
 	// name by this test and escapes it; it is not a form anyone writes.)
 	if numericHostPattern.MatchString(base) {
+		if wildcard {
+			return "", false
+		}
 		ip := net.ParseIP(base)
 		if ip == nil || ip.To4() == nil {
 			return "", false
