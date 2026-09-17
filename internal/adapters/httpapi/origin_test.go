@@ -50,6 +50,7 @@ func TestParseOriginPatternAccepts(t *testing.T) {
 		"https://*.fieldworksdiary.org",
 		"https://a_b.example",
 		"https://app.example.", // an absolute DNS name is one a browser sends
+		"https://*.fieldworksdiary.org.",
 		"https://127.0.0.1:8080",
 	} {
 		p, err := ParseOriginPattern(in)
@@ -94,6 +95,8 @@ func TestOriginPatternMatches(t *testing.T) {
 		{pattern: "http://localhost:5173", origin: "http://localhost"},
 		{pattern: "https://*.fieldworksdiary.org", origin: "https://app.fieldworksdiary.org", want: true},
 		{pattern: "https://*.fieldworksdiary.org", origin: "https://a.b.fieldworksdiary.org", want: true},
+		{pattern: "https://*.fieldworksdiary.org.", origin: "https://app.fieldworksdiary.org.", want: true},
+		{pattern: "https://*.fieldworksdiary.org.", origin: "https://app.fieldworksdiary.org"},
 		{pattern: "https://*.fieldworksdiary.org", origin: "https://fieldworksdiary.org"},          // the bare domain is not a subdomain
 		{pattern: "https://*.fieldworksdiary.org", origin: "https://notfieldworksdiary.org"},       // nor a lookalike
 		{pattern: "https://*.fieldworksdiary.org", origin: "http://app.fieldworksdiary.org"},       // scheme still exact
