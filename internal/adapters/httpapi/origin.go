@@ -155,19 +155,44 @@ func parseOrigin(s string, allowWildcard bool) (origin, error) {
 			"origin %q: %q is not a host — an origin is scheme://host[:port] with no "+
 				"path, query, fragment or userinfo", s, host)
 	}
-	// A port outside 1-65535 is one no browser can ever send, so the entry
-	// would be a rule that never matches.
-	if hasPort {
-		if n, convErr := strconv.Atoi(port); convErr != nil || n < 1 || n > 65535 {
-			return origin{}, fmt.Errorf("origin %q has an invalid port %q (expected 1-65535)", s, port)
-		}
+	// A port that is not decimal digits in 1-65535 is one no browser can ever
+	// send, so the entry would be a rule that never matches. strconv.Atoi alone
+	// is not that check: it accepts a sign, and "+443" is not a port.
+	if hasPort && !isPort(port) {
+		return origin{}, fmt.Errorf("origin %q has an invalid port %q (expected 1-65535)", s, port)
 	}
 
+	scheme = strings.ToLower(scheme)
 	return origin{
-		scheme: strings.ToLower(scheme),
+		scheme: scheme,
 		host:   strings.ToLower(host),
-		port:   port,
+		port:   withoutDefaultPort(scheme, port),
 	}, nil
+}
+
+// isPort reports whether s is a decimal port number in 1-65535.
+func isPort(s string) bool {
+	if strings.TrimLeft(s, "0123456789") != "" {
+		return false
+	}
+	n, err := strconv.Atoi(s)
+	return err == nil && n >= 1 && n <= 65535
+}
+
+// defaultPorts are the ports a browser leaves out of the Origin header because
+// the scheme implies them.
+var defaultPorts = map[string]string{"http": "80", "https": "443"}
+
+// withoutDefaultPort drops a port the scheme already implies, so that
+// "https://app.example:443" and "https://app.example" are the one origin a
+// browser calls both of them. Spelling the default out is not a mistake worth
+// refusing — but keeping it would make the entry match nothing, which is the
+// failure this whole file exists to prevent.
+func withoutDefaultPort(scheme, port string) string {
+	if port != "" && port == defaultPorts[scheme] {
+		return ""
+	}
+	return port
 }
 
 // splitHostPort separates an optional ":port" from a host, leaving a bracketed

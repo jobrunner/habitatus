@@ -16,6 +16,8 @@ func TestParseOriginPatternRejects(t *testing.T) {
 		"https://a.example:",    // a colon with no port
 		"https://a.example:0",   // ports outside 1-65535 can never be sent
 		"https://a.example:99999",
+		"https://a.example:+443",   // a sign is not part of a port
+		"https://a.example: 443",   // nor whitespace
 		"https://a.example:http",   // nor a service name
 		opaqueOrigin,               // the opaque origin is not allow-listable
 		"https://*.",               // a wildcard needs a base host
@@ -61,6 +63,13 @@ func TestOriginPatternMatches(t *testing.T) {
 		{pattern: "https://a.example", origin: "https://a.example", want: true},
 		{pattern: "https://a.example", origin: "http://a.example"},       // scheme differs
 		{pattern: "https://a.example", origin: "https://a.example:8443"}, // port differs
+		// A browser leaves the scheme's default port out of the Origin header,
+		// so an entry that spells it out has to mean the same origin.
+		{pattern: "https://a.example:443", origin: "https://a.example", want: true},
+		{pattern: "https://a.example", origin: "https://a.example:443", want: true},
+		{pattern: "http://a.example:80", origin: "http://a.example", want: true},
+		{pattern: "http://a.example:443", origin: "http://a.example"}, // 443 is not http's default
+		{pattern: "https://*.b.example:443", origin: "https://a.b.example", want: true},
 		{pattern: "http://localhost:5173", origin: "http://localhost:5173", want: true},
 		{pattern: "http://localhost:5173", origin: "http://localhost"},
 		{pattern: "https://*.fieldworksdiary.org", origin: "https://app.fieldworksdiary.org", want: true},

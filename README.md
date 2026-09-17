@@ -390,7 +390,9 @@ Der Platzhalter ersetzt genau das **erste Label** — `https://a.app.example` un
 nicht. Schema und Port müssen weiterhin exakt stimmen; sie mitzuweiten würde
 Antworten an Server ausliefern, die der Betreiber nie gelistet hat — eine
 `http://`-Schwester derselben Domain etwa oder einen anderen Dienst auf einem
-anderen Port.
+anderen Port. Der vom Schema implizierte Port ist dabei derselbe wie keiner:
+`https://app.example:443` und `https://app.example` sind eine Herkunft, denn
+ein Browser lässt ihn im `Origin`-Header weg.
 
 Ohne diese Angabe ist die API **aus einem Browser heraus nicht erreichbar** —
 nicht eingeschränkt, sondern gar nicht: `POST /api/v1/classify` nimmt
