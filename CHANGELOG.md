@@ -6,6 +6,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Versions and entries below the Unreleased section are cut by release-please
 from Conventional Commits — do not edit them by hand.
 
+## [0.3.0](https://github.com/jobrunner/habitatus/compare/v0.2.0...v0.3.0) (2026-09-17)
+
+
+### Features
+
+* allow a wildcard over the subdomains of a host in the CORS allowlist ([acb3648](https://github.com/jobrunner/habitatus/commit/acb364849bf7d7ab8e78157d958f47235ecbc765))
+* allow a wildcard over the subdomains of a host in the CORS allowlist ([36c5e22](https://github.com/jobrunner/habitatus/commit/36c5e2213514b9b9d9213b44a07c67a7b24fb24b))
+
+
+### Bug Fixes
+
+* canonicalise an allowlist entry before comparing it to an Origin header ([53cae56](https://github.com/jobrunner/habitatus/commit/53cae566001a4180ae1256ebc1aaef614a9b94f2))
+* canonicalise dotted and numeric origin hosts ([8fdbded](https://github.com/jobrunner/habitatus/commit/8fdbded9cebcefdbb9aa026047dbb45abdce01a8))
+* refuse the remaining entry spellings a browser would rewrite ([e889ab2](https://github.com/jobrunner/habitatus/commit/e889ab2d33fc5ddff0a48f5ce56b567e62280015))
+* reject wildcard patterns over IPv4 literals ([3b795b8](https://github.com/jobrunner/habitatus/commit/3b795b853667a59185eb64bb84290281c3abd79a))
+
 ## [0.2.0](https://github.com/jobrunner/habitatus/compare/v0.1.1...v0.2.0) (2026-09-15)
 
 
