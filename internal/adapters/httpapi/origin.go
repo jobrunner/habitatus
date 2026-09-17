@@ -1,6 +1,9 @@
 package httpapi
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // opaqueOrigin is what a browser sends for a document with no origin of its
 // own: a sandboxed iframe, a file:// page, some cross-site redirects.
@@ -41,6 +44,13 @@ func ParseOriginPattern(s string) (OriginPattern, error) {
 	if err != nil {
 		return OriginPattern{}, err
 	}
+	// An extension origin is a scheme and an opaque id: a browser serialises it
+	// without a port, and it has no DNS labels for a wildcard to stand in for.
+	// Either spelling would be an entry that matches nothing.
+	if extensionSchemes[o.scheme] && (o.port != "" || strings.HasPrefix(o.host, "*.")) {
+		return OriginPattern{}, fmt.Errorf(
+			"origin %q: a %s origin carries neither a port nor subdomains", s, o.scheme)
+	}
 	if !strings.HasPrefix(o.host, "*.") {
 		return OriginPattern{raw: s, origin: o}, nil
 	}
@@ -56,9 +66,11 @@ func ParseOriginPattern(s string) (OriginPattern, error) {
 // browserSchemes are the schemes a browser can actually put in an Origin
 // header: http and https for ordinary pages, plus the extension schemes.
 // Anything else in an allowlist is far more often a typo than an intention.
-var browserSchemes = map[string]bool{
-	"http":                 true,
-	"https":                true,
+var browserSchemes = map[string]bool{"http": true, "https": true}
+
+// extensionSchemes are the browser-internal ones. They are origins a browser
+// can send, but not ones with a host structure: no port, no subdomains.
+var extensionSchemes = map[string]bool{
 	"chrome-extension":     true,
 	"moz-extension":        true,
 	"safari-web-extension": true,
@@ -72,7 +84,9 @@ var browserSchemes = map[string]bool{
 // and the entry then matches nothing — the same silent failure a wildcard used
 // to cause. Callers warn rather than refuse, because the list above cannot be
 // proven exhaustive for every browser.
-func (p OriginPattern) HasBrowserScheme() bool { return p.any || browserSchemes[p.origin.scheme] }
+func (p OriginPattern) HasBrowserScheme() bool {
+	return p.any || browserSchemes[p.origin.scheme] || extensionSchemes[p.origin.scheme]
+}
 
 // String returns the entry as it was configured, so a log line or an error
 // names what the operator wrote rather than a normalised rewrite of it.

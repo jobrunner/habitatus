@@ -16,24 +16,29 @@ func TestParseOriginPatternRejects(t *testing.T) {
 		"https://a.example:",    // a colon with no port
 		"https://a.example:0",   // ports outside 1-65535 can never be sent
 		"https://a.example:99999",
-		"https://a.example:+443",   // a sign is not part of a port
-		"https://a.example: 443",   // nor whitespace
-		"1https://a.example",       // a scheme starts with a letter
-		"https/evil://a.example",   // and carries no slash
-		"https://[::1%eth0]",       // a zone is not part of an origin
-		"https://[::1%/path]",      // least of all one smuggling a path
-		"https://127.1",            // a browser sends this as 127.0.0.1
-		"https://0177.0.0.1",       // and this too
-		"https://*.127.0.0.1",      // a wildcard only applies to DNS labels
-		"https://a.example:http",   // nor a service name
-		opaqueOrigin,               // the opaque origin is not allow-listable
-		"https://*.",               // a wildcard needs a base host
-		"https://*",                // "*" alone is not a host
-		"https://sub*.example.com", // the "*" must be a whole label
-		"https://*.*.example.com",  // and there is only one of it
-		"https://a_b.example/x",    // still a path
-		"https://[::1",             // unbalanced IPv6 literal
-		"https://[::1]x",           // junk after the literal
+		"https://a.example:+443",      // a sign is not part of a port
+		"https://a.example: 443",      // nor whitespace
+		"1https://a.example",          // a scheme starts with a letter
+		"https/evil://a.example",      // and carries no slash
+		"https://[::1%eth0]",          // a zone is not part of an origin
+		"https://[::1%/path]",         // least of all one smuggling a path
+		"https://127.1",               // a browser sends this as 127.0.0.1
+		"https://0177.0.0.1",          // and this too
+		"https://*.127.0.0.1",         // a wildcard only applies to DNS labels
+		"https://0x7f000001",          // a browser reads this as 127.0.0.1 too
+		"https://example.0x1",         // and a hex last label the same way
+		"https://2130706433",          // as it does a bare number
+		"chrome-extension://abcd:443", // an extension origin carries no port
+		"chrome-extension://*.abcd",   // and has no subdomains
+		"https://a.example:http",      // nor a service name
+		opaqueOrigin,                  // the opaque origin is not allow-listable
+		"https://*.",                  // a wildcard needs a base host
+		"https://*",                   // "*" alone is not a host
+		"https://sub*.example.com",    // the "*" must be a whole label
+		"https://*.*.example.com",     // and there is only one of it
+		"https://a_b.example/x",       // still a path
+		"https://[::1",                // unbalanced IPv6 literal
+		"https://[::1]x",              // junk after the literal
 	} {
 		if got, err := ParseOriginPattern(in); err == nil {
 			t.Errorf("ParseOriginPattern(%q) = %v, want an error", in, got)
@@ -50,6 +55,7 @@ func TestParseOriginPatternAccepts(t *testing.T) {
 		"https://192.0.2.10:8080",
 		"https://*.fieldworksdiary.org",
 		"https://a_b.example",
+		"chrome-extension://abcdefghijklmnop",
 		"https://app.example.", // an absolute DNS name is one a browser sends
 		"https://*.fieldworksdiary.org.",
 		"https://127.0.0.1:8080",

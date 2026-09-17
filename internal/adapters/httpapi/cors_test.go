@@ -57,7 +57,7 @@ func TestParseOrigins(t *testing.T) {
 		}
 		for i := range got {
 			if got[i].String() != tc.want[i] {
-				t.Errorf("ParseOrigins(%q)[%d] = %q, want %q", tc.in, i, got[i], tc.want[i])
+				t.Errorf("ParseOrigins(%q)[%d] = %q, want %q", tc.in, i, got[i].String(), tc.want[i])
 			}
 		}
 	}

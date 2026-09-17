@@ -422,8 +422,11 @@ weiterzulaufen. Genau das ist der Punkt: Ein Eintrag, den ein Browser nie
 senden kann, stünde sonst konfiguriert aussehend in der Liste und würde nichts
 treffen. Aus demselben Grund abgelehnt wird ein numerischer Host in einer
 anderen Schreibweise als der Dotted-Quad-Form (`https://127.1`,
-`https://0177.0.0.1`): ein Browser sendet `https://127.0.0.1`, der Eintrag
-träfe also nie. Ein absoluter DNS-Name mit abschließendem Punkt
+`https://0177.0.0.1`, `https://0x7f000001`): ein Browser liest all das als
+IPv4-Adresse und sendet `https://127.0.0.1`, der Eintrag träfe also nie.
+Ebenso abgelehnt werden ein Port oder ein Platzhalter bei einer
+Extension-Herkunft (`chrome-extension://…`) — die hat weder das eine noch das
+andere. Ein absoluter DNS-Name mit abschließendem Punkt
 (`https://app.example.`) ist dagegen gültig — den sendet ein Browser genau so,
 und er bleibt eine andere Herkunft als `https://app.example`.
 

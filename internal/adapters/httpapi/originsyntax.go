@@ -156,10 +156,19 @@ func splitHostPort(hostPort string) (host, port string, hasPort bool, err error)
 // would reject an origin that arrives.
 var hostPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*\.?$`)
 
-// numericHostPattern matches a host written only in digits and dots. A browser
-// reads such a host as an IPv4 address and serialises it in dotted-quad form,
-// so "127.1" reaches the server as "127.0.0.1" — see canonicalHost.
-var numericHostPattern = regexp.MustCompile(`^[0-9.]+$`)
+// ipv4LastLabel is the WHATWG URL parser's "ends in a number" test: a host
+// whose last label is all decimal digits, or a "0x"-prefixed hex number, is
+// read as an IPv4 address rather than as a name. "127.1", "2130706433",
+// "0x7f000001" and "example.0x1" are all addresses by this rule, and a browser
+// serialises every one of them as a dotted quad — see canonicalHost.
+var ipv4LastLabel = regexp.MustCompile(`^(\d+|0[xX][0-9a-fA-F]*)$`)
+
+// endsInNumber reports whether a browser would read this host as an IPv4
+// address. The trailing dot of an absolute name is not a label.
+func endsInNumber(host string) bool {
+	labels := strings.Split(strings.TrimSuffix(host, "."), ".")
+	return ipv4LastLabel.MatchString(labels[len(labels)-1])
+}
 
 // schemePattern is the URI scheme grammar of RFC 3986 §3.1. Without it
 // "1https://app.example" and "https/evil://app.example" parse as schemes, and
@@ -199,17 +208,16 @@ func canonicalHost(s string, allowWildcard bool) (string, bool) {
 	if !hostPattern.MatchString(base) {
 		return "", false
 	}
-	// A numeric host is an address, not a name, so a wildcard over it is not a
-	// rule about subdomains at all. Exact IPv4 literals are allowed in the one
-	// dotted-quad form a browser sends; the shortened and octal spellings are
-	// refused rather than converted. (A host written in hex, "0x7f000001", is a
-	// name by this test and escapes it; it is not a form anyone writes.)
-	if numericHostPattern.MatchString(base) {
-		if wildcard {
-			return "", false
-		}
+	// An address is not a name, so a wildcard over it is not a rule about
+	// subdomains at all, and only the one dotted-quad form a browser sends is
+	// accepted. The shortened, octal and hex spellings ("127.1", "0177.0.0.1",
+	// "0x7f000001") are refused rather than converted: they are all 127.0.0.1
+	// to a browser, and converting them correctly would mean reproducing the
+	// URL host parser — including the octal reading of a leading zero, where
+	// getting it wrong means quietly allow-listing a different address.
+	if endsInNumber(base) {
 		ip := net.ParseIP(base)
-		if ip == nil || ip.To4() == nil {
+		if wildcard || ip == nil || ip.To4() == nil {
 			return "", false
 		}
 		return ip.String(), true
