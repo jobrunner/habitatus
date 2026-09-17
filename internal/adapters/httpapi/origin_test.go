@@ -22,6 +22,8 @@ func TestParseOriginPatternRejects(t *testing.T) {
 		"https/evil://a.example",   // and carries no slash
 		"https://[::1%eth0]",       // a zone is not part of an origin
 		"https://[::1%/path]",      // least of all one smuggling a path
+		"https://127.1",            // a browser sends this as 127.0.0.1
+		"https://0177.0.0.1",       // and this too
 		"https://a.example:http",   // nor a service name
 		opaqueOrigin,               // the opaque origin is not allow-listable
 		"https://*.",               // a wildcard needs a base host
@@ -47,6 +49,8 @@ func TestParseOriginPatternAccepts(t *testing.T) {
 		"https://192.0.2.10:8080",
 		"https://*.fieldworksdiary.org",
 		"https://a_b.example",
+		"https://app.example.", // an absolute DNS name is one a browser sends
+		"https://127.0.0.1:8080",
 	} {
 		p, err := ParseOriginPattern(in)
 		if err != nil {
@@ -81,6 +85,11 @@ func TestOriginPatternMatches(t *testing.T) {
 		{pattern: "https://[0:0:0:0:0:0:0:1]", origin: "https://[::1]", want: true},
 		{pattern: "https://[::1]:8080", origin: "https://[0:0:0:0:0:0:0:1]:8080", want: true},
 		{pattern: "https://[::1]", origin: "https://[::2]"},
+		// The trailing dot is part of the host a browser serialises, so the two
+		// spellings stay two origins rather than being quietly merged.
+		{pattern: "https://app.example.", origin: "https://app.example.", want: true},
+		{pattern: "https://app.example.", origin: "https://app.example"},
+		{pattern: "https://app.example", origin: "https://app.example."},
 		{pattern: "http://localhost:5173", origin: "http://localhost:5173", want: true},
 		{pattern: "http://localhost:5173", origin: "http://localhost"},
 		{pattern: "https://*.fieldworksdiary.org", origin: "https://app.fieldworksdiary.org", want: true},
