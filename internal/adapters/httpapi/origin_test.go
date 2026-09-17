@@ -87,6 +87,8 @@ func TestOriginPatternMatches(t *testing.T) {
 		{pattern: "https://[0:0:0:0:0:0:0:1]", origin: "https://[::1]", want: true},
 		{pattern: "https://[::1]:8080", origin: "https://[0:0:0:0:0:0:0:1]:8080", want: true},
 		{pattern: "https://[::1]", origin: "https://[::2]"},
+		{pattern: "https://127.0.0.1:8080", origin: "https://127.0.0.1:8080", want: true},
+		{pattern: "https://127.0.0.1", origin: "https://localhost"}, // an address is not the name for it
 		// The trailing dot is part of the host a browser serialises, so the two
 		// spellings stay two origins rather than being quietly merged.
 		{pattern: "https://app.example.", origin: "https://app.example.", want: true},
