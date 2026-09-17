@@ -420,7 +420,17 @@ einem Platzhalter mitten im Label, ein Pfad, eine Query, ein Port außerhalb
 mit einer Meldung, die den Wert nennt, statt mit einer halb konfigurierten CORS
 weiterzulaufen. Genau das ist der Punkt: Ein Eintrag, den ein Browser nie
 senden kann, stünde sonst konfiguriert aussehend in der Liste und würde nichts
-treffen.
+treffen. Aus demselben Grund abgelehnt wird ein numerischer Host in einer
+anderen Schreibweise als der Dotted-Quad-Form (`https://127.1`,
+`https://0177.0.0.1`): ein Browser sendet `https://127.0.0.1`, der Eintrag
+träfe also nie. Ein absoluter DNS-Name mit abschließendem Punkt
+(`https://app.example.`) ist dagegen gültig — den sendet ein Browser genau so,
+und er bleibt eine andere Herkunft als `https://app.example`.
+
+Umgekehrt werden Schreibweisen, die derselbe Browser vereinheitlicht, auch hier
+vereinheitlicht: Groß-/Kleinschreibung, der vom Schema implizierte Port
+(`:443` bei `https`), führende Nullen im Port (`:0443`) und die Langform eines
+IPv6-Literals (`[0:0:0:0:0:0:0:1]` = `[::1]`).
 
 Beim Start protokolliert der Dienst die aufgelöste Liste
 (`"msg":"CORS enabled","origins":[...]`) und warnt bei einem Schema, das kein
