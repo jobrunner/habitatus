@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Versions and entries below the Unreleased section are cut by release-please
 from Conventional Commits — do not edit them by hand.
 
+## [0.3.0](https://github.com/jobrunner/habitatus/compare/v0.2.0...v0.3.0) (2026-09-17)
+
+
+### Features
+
+* a CORS allowlist entry may be a wildcard over the subdomains of a host, `https://*.example` ([#16](https://github.com/jobrunner/habitatus/pull/16))
+* an entry is compared in the spelling a browser sends: case, the port the scheme implies, leading zeroes in a port and the long form of an IPv6 literal are unified, and a spelling a browser would rewrite (`https://127.1`, `https://0x7f000001`) is refused at start-up rather than silently matching nothing ([#16](https://github.com/jobrunner/habitatus/pull/16))
+* the resolved allowlist is logged at start-up, with a warning for a scheme no browser sends ([#16](https://github.com/jobrunner/habitatus/pull/16))
+
 ## [0.2.0](https://github.com/jobrunner/habitatus/compare/v0.1.1...v0.2.0) (2026-09-15)
 
 
