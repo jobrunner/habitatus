@@ -198,17 +198,25 @@ func TestWithCORSSimpleRequest(t *testing.T) {
 // browser: it names what the service resolved, and warns about the one entry
 // shape that parses but can never match.
 func TestLogCORS(t *testing.T) {
+	type wantLog struct {
+		level slog.Level
+		have  []string
+	}
+
 	for _, tc := range []struct {
 		name, allow string
-		wantLevel   slog.Level
-		want        []string
+		want        []wantLog
 		wantNone    bool
 	}{
 		{name: "off says nothing", allow: "", wantNone: true},
-		{name: "names the allowlist", allow: "https://a.example, https://*.b.example",
-			want: []string{"CORS enabled", "https://a.example", "https://*.b.example"}},
-		{name: "warns about a scheme no browser sends", allow: "htps://a.example",
-			want: []string{"check for a typo", "htps://a.example"}},
+		{name: "names the allowlist", allow: "https://a.example, https://*.b.example", want: []wantLog{{
+			level: slog.LevelInfo,
+			have:  []string{"CORS enabled", "https://a.example", "https://*.b.example"},
+		}}},
+		{name: "warns about a scheme no browser sends", allow: "htps://a.example", want: []wantLog{
+			{level: slog.LevelWarn, have: []string{"check for a typo", "htps://a.example"}},
+			{level: slog.LevelInfo, have: []string{"CORS enabled", "htps://a.example"}},
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var buf bytes.Buffer
@@ -217,9 +225,21 @@ func TestLogCORS(t *testing.T) {
 			if tc.wantNone && buf.Len() != 0 {
 				t.Fatalf("logged %q with CORS off, want nothing", buf.String())
 			}
-			for _, want := range tc.want {
-				if !strings.Contains(buf.String(), want) {
-					t.Errorf("log = %q, want it to mention %q", buf.String(), want)
+			if tc.wantNone {
+				return
+			}
+			lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+			if got, want := len(lines), len(tc.want); got != want {
+				t.Fatalf("logged %d line(s), want %d: %q", got, want, buf.String())
+			}
+			for i, want := range tc.want {
+				if !strings.Contains(lines[i], "level="+want.level.String()) {
+					t.Errorf("line %d = %q, want level %s", i, lines[i], want.level)
+				}
+				for _, have := range want.have {
+					if !strings.Contains(lines[i], have) {
+						t.Errorf("line %d = %q, want it to mention %q", i, lines[i], have)
+					}
 				}
 			}
 		})
