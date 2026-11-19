@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Versions and entries below the Unreleased section are cut by release-please
 from Conventional Commits — do not edit them by hand.
 
+## [0.3.1](https://github.com/jobrunner/habitatus/compare/v0.3.0...v0.3.1) (2026-11-19)
+
+
+### Bug Fixes
+
+* **deps:** bump Go toolchain to 1.26.11 ([fb3e7c8](https://github.com/jobrunner/habitatus/commit/fb3e7c8c8bae330df53be7828b0951593670e418))
+* **deps:** bump Go toolchain to 1.26.11 for stdlib vulnerabilities ([d696191](https://github.com/jobrunner/habitatus/commit/d6961917e0540104edf50a58a285904bbdffe2a1))
+
 ## [0.3.0](https://github.com/jobrunner/habitatus/compare/v0.2.0...v0.3.0) (2026-09-17)
 
 
