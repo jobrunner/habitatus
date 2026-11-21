@@ -19,3 +19,6 @@ sbom.*.json
 
 # Created on demand by `make commitlint`; never committed.
 node_modules/
+
+# Entwürfe der Korrespondenz mit den ESy-Autoren (noch nicht versioniert)
+/docs/correspondence/
